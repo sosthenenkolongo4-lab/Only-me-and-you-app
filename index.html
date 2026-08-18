@@ -7,6 +7,17 @@
     <title>Only Me & You — LoveStory</title>
   </head>
   <body>
+    <script>
+    window.addEventListener('error', function(e) {
+      document.body.innerHTML = '<pre style="color:#fff;background:#900;padding:16px;white-space:pre-wrap;font-size:13px;">' +
+        (e.message || (e.target && e.target.src) || 'Erreur inconnue') +
+        '\n' + (e.filename||'') + ' ligne ' + (e.lineno||'') + '</pre>';
+    }, true);
+    window.addEventListener('unhandledrejection', function(e) {
+      document.body.innerHTML += '<pre style="color:#fff;background:#900;padding:16px;white-space:pre-wrap;font-size:13px;">Promise: ' +
+        ((e.reason && e.reason.message) || e.reason) + '</pre>';
+    });
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
