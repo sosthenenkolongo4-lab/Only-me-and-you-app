@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import {
   Heart, Home, MessageCircleHeart, Calendar, Wallet, Gamepad2, BookOpenText,
   Sparkles, Send, Camera, Gift, Check, Copy, LogOut, Users, Clock3,
-  Plus, Trash2, Star, RefreshCw, Lock, ArrowRight, X, BellRing, Settings
+  Plus, Trash2, Star, RefreshCw, Lock, ArrowRight, X, BellRing, Edit3
 } from "lucide-react";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -97,25 +97,27 @@ export default function App() {
 
       if (rows?.[0]) {
         const existingData = mergeData(rows[0].payload);
-        
-        // Mettre à jour le nom attribué selon le rôle choisi
         const updatedNames = { ...existingData.names };
-        if (role === "you" && !updatedNames.you) updatedNames.you = name;
-        if (role === "partner" && !updatedNames.partner) updatedNames.partner = name;
+        
+        // Inscription automatique du prénom dans le bon slot (Créateur vs Partenaire)
+        if (role === "you") {
+          updatedNames.you = name;
+        } else {
+          updatedNames.partner = name;
+        }
         
         const updatedPayload = { ...existingData, names: updatedNames };
         setData(updatedPayload);
 
-        // Sauvegarder la mise à jour des noms
+        // Sauvegarde de l'association des deux noms
         await supabase.from("couple_rooms").update({ payload: updatedPayload, updated_at: new Date().toISOString() }).eq("room_code", roomCode);
 
-        // Synchronisation en temps réel via Supabase realtime
+        // Synchronisation temps réel
         channel = supabase.channel("couple-" + roomCode)
           .on("postgres_changes", { event: "UPDATE", schema: "public", table: "couple_rooms", filter: `room_code=eq.${roomCode}` },
             p => setData(mergeData(p.new.payload)))
           .subscribe();
       } else {
-        // Création du salon avec initialisation propre des rôles
         const fresh = {
           ...EMPTY,
           couple_id: roomCode,
@@ -139,7 +141,7 @@ export default function App() {
   async function join(targetRoom, targetRole) {
     const r = targetRoom.trim().toUpperCase();
     const n = name.trim();
-    if (!r || !n) { setError("Saisis ton prénom et assure-toi que le code est généré."); return; }
+    if (!r || !n) { setError("Saisis ton prénom et génère/entre un code."); return; }
     
     localStorage.setItem("oamy:room", r);
     localStorage.setItem("oamy:name", n);
@@ -178,7 +180,7 @@ export default function App() {
         <div className="brand"><Heart fill="currentColor" size={17} /> Only Me <span>&</span> You</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <div className="sync"><span /> Synchronisé</div>
-          <button onClick={logout} className="logout-mini-btn" title="Déconnexion"><LogOut size={15} /></button>
+          <button onClick={logout} className="logout-mini-btn" title="Déconnexion" style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer' }}><LogOut size={16} /></button>
         </div>
       </div>
       <main className="main">
@@ -200,7 +202,6 @@ function Pairing({ name, setName, join, error }) {
   const [code, setCode] = useState("");
   const [copied, setCopied] = useState(false);
 
-  // Génération automatique d'un code unique à 6 caractères
   const generateCode = () => {
     const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     let res = "";
@@ -258,7 +259,7 @@ function Pairing({ name, setName, join, error }) {
                 {copied ? <Check size={16} /> : <Copy size={16} />}
               </button>
             </div>
-            <div className="code-tip"><Lock size={14} /> Partage ce code uniquement avec ton/ta partenaire pour qu'il/elle rejoigne.</div>
+            <div className="code-tip"><Lock size={14} /> Partage ce code uniquement avec ton/ta partenaire.</div>
           </div>
         ) : (
           <label>
@@ -279,7 +280,6 @@ function Pairing({ name, setName, join, error }) {
 
         {error && <div className="error" style={{ color: '#ff4d4d', marginTop: '10px' }}>{error}</div>}
       </div>
-      <small>Connexion sécurisée par code unique • Synchronisation instantanée</small>
     </div>
   );
 }
@@ -290,7 +290,6 @@ function SetupHelp() {
       <Heart fill="currentColor" size={42} />
       <h1>Only Me & You</h1>
       <p>Configure Supabase pour activer le couple partagé.</p>
-      <pre>{`1. Copie .env.example vers .env.local\n2. Mets VITE_SUPABASE_URL\n3. Mets VITE_SUPABASE_ANON_KEY\n4. Lance: npm install && npm run dev`}</pre>
     </div>
   );
 }
@@ -329,80 +328,127 @@ function Nav({ tab, setTab }) {
 
 function Title({ title, sub }) { return <div className="title"><h2>{title}</h2><p>{sub}</p></div>; }
 
-function HomeScreen({ data, name, role, setTab, save }) {
+/* COMPOSANT DU COMPTE À REBOURS AVEC AFFICHAGE DEUX NOMS */
+function CountdownCard({ data, save }) {
   const [now, setNow] = useState(new Date());
-  const [isEditingDate, setIsEditingDate] = useState(false);
-  const [tempDate, setTempDate] = useState(data.startDate);
+  const [showEdit, setShowEdit] = useState(false);
+  const [selectedDate, setSelectedDate] = useState(data.startDate);
 
   useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(t);
+    const timer = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(timer);
   }, []);
 
-  // Calcul dynamique du compte à rebours (jours, heures, minutes, secondes)
-  const start = new Date((data.startDate || new Date().toISOString().slice(0, 10)) + "T00:00:00");
-  const diffMs = Math.max(0, now - start);
+  const startDateObj = new Date((data.startDate || new Date().toISOString().slice(0, 10)) + "T00:00:00");
+  const diffMs = Math.max(0, now - startDateObj);
 
-  const totalDays = Math.floor(diffMs / 86400000);
-  const hours = String(Math.floor((diffMs / 3600000) % 24)).padStart(2, "0");
-  const minutes = String(Math.floor((diffMs / 60000) % 60)).padStart(2, "0");
-  const seconds = String(Math.floor((diffMs / 1000) % 60)).padStart(2, "0");
+  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const hours = Math.floor((diffMs / (1000 * 60 * 60)) % 24);
+  const minutes = Math.floor((diffMs / (1000 * 60)) % 60);
+  const seconds = Math.floor((diffMs / 1000) % 60);
 
-  const partnerName = role === "you"
-    ? (data.names.partner || "Ton/Ta Partenaire")
-    : (data.names.you || "Ton/Ta Partenaire");
+  // Extraction propre des deux prénoms
+  const firstName = data.names.you || "Partenaire 1";
+  const secondName = data.names.partner || "En attente...";
 
-  const myName = name || (role === "you" ? data.names.you : data.names.partner) || "Moi";
-
-  const verse = verses[totalDays % verses.length];
-
-  const handleSaveDate = () => {
-    save({ ...data, startDate: tempDate });
-    setIsEditingDate(false);
+  const handleUpdateDate = () => {
+    save({ ...data, startDate: selectedDate });
+    setShowEdit(false);
   };
 
   return (
-    <div className="home">
-      <div className="hero">
-        <div className="floating"><Heart fill="currentColor" /><Heart /><Heart fill="currentColor" /></div>
-        <div className="online"><span /> Votre espace est synchronisé</div>
-        
-        <div className="couple-name">
-          {myName} <b>♡</b> {partnerName}
-        </div>
-
-        <div className="label">ensemble depuis</div>
-        <div className="big">{totalDays}</div>
-        <div className="days">JOURS</div>
-        
-        {/* COMPTE À REBOURS PRÉCIS (H:M:S) */}
-        <div className="timer" style={{ fontSize: '1.2rem', fontWeight: 'bold', margin: '8px 0', letterSpacing: '1px' }}>
-          {hours}h {minutes}m {seconds}s
-        </div>
-
-        <div className="since" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
-          Depuis le {fmtDate(data.startDate)}
-          <button 
-            onClick={() => setIsEditingDate(!isEditingDate)} 
-            style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: '2px' }}
-            title="Modifier la date de début"
-          >
-            <Calendar size={14} />
-          </button>
-        </div>
-
-        {isEditingDate && (
-          <div className="card-date-edit" style={{ marginTop: '12px', background: 'rgba(255,255,255,0.15)', padding: '10px', borderRadius: '8px' }}>
-            <label style={{ fontSize: '0.8rem', display: 'block', marginBottom: '4px' }}>Date de rencontre :</label>
-            <input type="date" value={tempDate} onChange={e => setTempDate(e.target.value)} style={{ color: '#000', padding: '4px', borderRadius: '4px' }} />
-            <button onClick={handleSaveDate} className="primary" style={{ marginTop: '6px', padding: '4px 8px', fontSize: '0.8rem' }}>Enregistrer</button>
-          </div>
-        )}
+    <div className="card countdown-section" style={{
+      background: 'linear-gradient(135deg, #ff758c 0%, #ff7eb3 100%)',
+      color: 'white',
+      borderRadius: '16px',
+      padding: '20px',
+      textAlign: 'center',
+      boxShadow: '0 8px 20px rgba(255, 117, 140, 0.3)',
+      marginBottom: '20px'
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', opacity: 0.9 }}>
+        <Clock3 size={18} />
+        <span style={{ fontSize: '0.9rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '1px' }}>Notre Compte à Rebours</span>
       </div>
+
+      {/* AFFICHAGE DES DEUX NOMS DU COUPLE */}
+      <h2 style={{ margin: '10px 0 4px 0', fontSize: '1.4rem' }}>
+        {firstName} <Heart size={16} fill="currentColor" style={{ display: 'inline', margin: '0 4px' }} /> {secondName}
+      </h2>
+
+      <p style={{ margin: '0 0 15px 0', fontSize: '0.85rem', opacity: 0.9 }}>
+        Ensemble depuis le {fmtDate(data.startDate)}
+      </p>
+
+      {/* COMPTEUR EN TEMPS RÉEL */}
+      <div style={{ display: 'flex', justifyContent: 'center', gap: '12px', margin: '15px 0' }}>
+        <div style={{ background: 'rgba(255, 255, 255, 0.2)', padding: '10px', borderRadius: '10px', minWidth: '60px' }}>
+          <div style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>{days}</div>
+          <div style={{ fontSize: '0.65rem', textTransform: 'uppercase' }}>Jours</div>
+        </div>
+        <div style={{ background: 'rgba(255, 255, 255, 0.2)', padding: '10px', borderRadius: '10px', minWidth: '60px' }}>
+          <div style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>{String(hours).padStart(2, '0')}</div>
+          <div style={{ fontSize: '0.65rem', textTransform: 'uppercase' }}>Heures</div>
+        </div>
+        <div style={{ background: 'rgba(255, 255, 255, 0.2)', padding: '10px', borderRadius: '10px', minWidth: '60px' }}>
+          <div style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>{String(minutes).padStart(2, '0')}</div>
+          <div style={{ fontSize: '0.65rem', textTransform: 'uppercase' }}>Min</div>
+        </div>
+        <div style={{ background: 'rgba(255, 255, 255, 0.2)', padding: '10px', borderRadius: '10px', minWidth: '60px' }}>
+          <div style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>{String(seconds).padStart(2, '0')}</div>
+          <div style={{ fontSize: '0.65rem', textTransform: 'uppercase' }}>Sec</div>
+        </div>
+      </div>
+
+      {!showEdit ? (
+        <button 
+          onClick={() => setShowEdit(true)} 
+          style={{
+            background: 'rgba(255, 255, 255, 0.25)',
+            border: 'none',
+            color: 'white',
+            padding: '6px 14px',
+            borderRadius: '20px',
+            fontSize: '0.8rem',
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            marginTop: '5px'
+          }}
+        >
+          <Edit3 size={13} /> Changer la date de début
+        </button>
+      ) : (
+        <div style={{ background: 'rgba(255, 255, 255, 0.95)', color: '#333', padding: '12px', borderRadius: '12px', marginTop: '10px' }}>
+          <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 'bold', marginBottom: '6px' }}>Date de rencontre / début :</label>
+          <input 
+            type="date" 
+            value={selectedDate} 
+            onChange={e => setSelectedDate(e.target.value)} 
+            style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ccc', marginBottom: '8px' }}
+          />
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button onClick={handleUpdateDate} className="primary" style={{ flex: 1, padding: '6px', fontSize: '0.8rem' }}>Valider</button>
+            <button onClick={() => setShowEdit(false)} style={{ flex: 1, padding: '6px', fontSize: '0.8rem', background: '#ccc', border: 'none', borderRadius: '6px' }}>Annuler</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HomeScreen({ data, name, role, setTab, save }) {
+  const daysCount = Math.floor(Math.max(0, new Date() - new Date((data.startDate || new Date().toISOString().slice(0, 10)) + "T00:00:00")) / 86400000);
+  const verse = verses[daysCount % verses.length];
+
+  return (
+    <div className="home">
+      <CountdownCard data={data} save={save} />
 
       <div className="today card">
         <div><Sparkles size={18} /><b>Aujourd'hui pour nous</b></div>
-        <p>{questions[totalDays % questions.length]}</p>
+        <p>{questions[daysCount % questions.length]}</p>
         <button onClick={() => setTab("chat")}>Répondre à deux <ArrowRight size={14} /></button>
       </div>
 
@@ -621,7 +667,6 @@ function More({ data, save, logout, room }) {
         <div><BellRing size={16} /> Rappels</div>
         <div><Users size={16} /> Code de votre couple : <b style={{ letterSpacing: '1px' }}>{room}</b></div>
         
-        {/* BOUTON DÉCONNEXION OFFICIEL */}
         <button 
           onClick={logout} 
           style={{ 
