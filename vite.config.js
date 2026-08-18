@@ -6,5 +6,5 @@ import react from "@vitejs/plugin-react";
 // Sans ça, les fichiers CSS/JS ne se chargeront pas sur GitHub Pages.
 export default defineConfig({
   plugins: [react()],
-  base: "/NOM-DU-REPO/",
+  base: "/Only-me-and-you-app/",
 });
