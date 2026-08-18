@@ -111,13 +111,13 @@ export default function App(){
     if(error)setError(error.message); else setSession(data.session);
   }
 
-  async function join(){
-    const r=room.trim().toUpperCase();
-    const n=name.trim();
-    if(!r||!n){setError("Entre ton prénom et le code du couple.");return;}
-    localStorage.setItem("oamy:room",r); localStorage.setItem("oamy:name",n); localStorage.setItem("oamy:role",role);
-    setRoom(r); setName(n); await login();
-  }
+  async function join(overrideRoom){
+  const r=(typeof overrideRoom === 'string' ? overrideRoom : room).trim().toUpperCase();
+  const n=name.trim();
+  if(!r||!n){setError("Entre ton prénom et le code du couple.");return;}
+  localStorage.setItem("oamy:room",r); localStorage.setItem("oamy:name",n);
+  setRoom(r); setName(n); await login();
+}
 
   async function save(next){
     setData(next);
