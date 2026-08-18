@@ -132,7 +132,7 @@ export default function App(){
   }
 
   if(!supabase) return <SetupHelp />;
-  if(!room || !session) return <Pairing name={name} setName={setName} room={room} setRoom={setRoom} role={role} setRole={setRole} join={join} error={error}/>;
+  if(!room || !session) return <Pairing name={name} setName={setName} room={room} setRoom={setRoom} role={role} setRole={setRole} join={join} create={join} error={error} />;
   if(loading) return <Loading/>;
 
   return <Shell>
@@ -153,63 +153,62 @@ export default function App(){
   </Shell>;
 }
 
-function Pairing({name,setName,room,setRoom,role,setRole,join,error}){
-  const [mode,setMode]=useState("join");
-  const newCode=()=>setRoom(Math.random().toString(36).slice(2,8).toUpperCase());
-  return <div className="pair-page">
-    <div className="pair-glow"/>
-    <div className="pair-logo"><Heart fill="currentColor" size={42}/></div>
-    <div className="script">Only Me & You</div>
-    <h1>Notre petit monde.</h1>
-    <p>Un espace privé pour écrire, partager et faire grandir votre histoire à deux.</p>
-    <div className="pair-card">
-      <div className="seg"><button className={mode==="join"?"on":""} onClick={()=>setMode("join")}>Rejoindre</button><button className={mode==="create"?"on":""} onClick={()=>{setMode("create");newCode()}}>Créer</button></div>
-      <label>Ton prénom<input value={name} onChange={e=>setName(e.target.value)} placeholder="Ex. Sosthene"/></label>
-      <label>Je suis<select value={role} onChange={e=>setRole(e.target.value)}><option value="you">Moi</option><option value="partner">Mon/ma partenaire</option></select></label>
-      <label>Code de notre couple<input value={room} onChange={e=>setRoom(e.target.value.toUpperCase())} placeholder="ABC123" maxLength={12}/></label>
-      {mode==="create" && <div className="code-tip"><Lock size={14}/> Garde ce code privé et partage-le uniquement avec ta partenaire.</div>}
-      <button className="primary" onClick={join}><Heart size={16}/> Entrer dans notre histoire</button>
-      {error && <div className="error">{error}</div>}
+function Pairing({name, setName, room, setRoom, role, setRole, join, create, error}) {
+  const [mode, setMode] = useState("join");
+  const [newCode] = useState(() => Math.random().toString(36).slice(2,8).toUpperCase());
+
+  return (
+    <div className="pair-page">
+      <div className="pair-glow" />
+      <div className="pair-logo">
+        <Heart fill="currentColor" size={42} />
+      </div>
+      <h1>Only Me & You</h1>
+      <p>Un espace privé pour écrire, partager et faire grandir votre histoire à deux.</p>
+      
+      <div className="pair-card">
+        <div className="seg">
+          <button className={mode === "join" ? "on" : ""} onClick={() => setMode("join")}>Rejoindre</button>
+          <button className={mode === "create" ? "on" : ""} onClick={() => setMode("create")}>Créer</button>
+        </div>
+
+        <label>Ton prénom</label>
+        <input value={name} onChange={e => setName(e.target.value)} placeholder="Ex. Sosthène" />
+
+        <label>Je suis</label>
+        <select value={role} onChange={e => setRole(e.target.value)}>
+          <option value="you">Moi</option>
+          <option value="partner">Partenaire</option>
+        </select>
+
+        {mode === "create" ? (
+          <>
+            <label>Code de votre couple généré</label>
+            <input value={newCode} readOnly className="code-input" />
+            <div className="code-tip">
+              <Lock size={14} /> Garde ce code privé et partage-le uniquement à ta partenaire
+            </div>
+            <button className="primary" onClick={() => create(newCode)}>
+              <Heart size={16} /> Créer notre histoire
+            </button>
+          </>
+        ) : (
+          <>
+            <label>Code de votre couple</label>
+            <input value={room} onChange={e => setRoom(e.target.value.toUpperCase())} placeholder="Ex. LOVE123" />
+            <button className="primary" onClick={join}>
+              <Heart size={16} /> Entrer dans notre histoire
+            </button>
+          </>
+        )}
+
+        {error && <div className="error">{error}</div>}
+      </div>
+      <small>Synchronisation en temps réel • Chaque appareil voit les mêmes données</small>
     </div>
-    <small>Synchronisation en temps réel • Chaque appareil voit les mêmes données</small>
-  </div>
+  );
 }
 
-function SetupHelp(){
- return <div className="setup"><Heart fill="currentColor" size={42}/><h1>Only Me & You</h1><p>Configure Supabase pour activer le couple partagé.</p><pre>{`1. Copie .env.example vers .env.local
-2. Mets VITE_SUPABASE_URL
-3. Mets VITE_SUPABASE_ANON_KEY
-4. Lance: npm install && npm run dev`}</pre></div>
-}
-function Loading(){return <div className="loading"><Heart fill="currentColor" size={34}/><p>Ouverture de votre petit monde…</p></div>}
-
-function Shell({children}){return <div className="app">{children}</div>}
-function Nav({tab,setTab}){
- const items=[["home","Nous",Home],["chat","Messages",MessageCircleHeart],["story","Histoire",Sparkles],["agenda","Agenda",Calendar],["games","Jeux",Gamepad2],["more","Plus",BookOpenText]];
- return <nav>{items.map(([id,l,I])=><button className={tab===id?"active":""} onClick={()=>setTab(id)} key={id}><I size={17}/><span>{l}</span></button>)}</nav>
-}
-function Title({title,sub}){return <div className="title"><h2>{title}</h2><p>{sub}</p></div>}
-
-function HomeScreen({data,name,setTab}){
- const [now,setNow]=useState(new Date()); useEffect(()=>{const t=setInterval(()=>setNow(new Date()),1000);return()=>clearInterval(t)},[]);
- const d=days(data.startDate), h=String(Math.floor((now-new Date(data.startDate+"T00:00:00"))/3600000)%24).padStart(2,"0"),m=String(now.getMinutes()).padStart(2,"0"),s=String(now.getSeconds()).padStart(2,"0");
- const partner=data.names.you===name?data.names.partner:data.names.you;
- const verse=verses[d%verses.length];
- return <div className="home">
-  <div className="hero">
-   <div className="floating"><Heart fill="currentColor"/><Heart/><Heart fill="currentColor"/></div>
-   <div className="online"><span/> Votre espace est synchronisé</div>
-   <div className="couple-name">{data.names.you||name} <b>♡</b> {partner||"ta partenaire"}</div>
-   <div className="label">ensemble depuis</div><div className="big">{d}</div><div className="days">JOURS</div>
-   <div className="timer">{h}h {m}m {s}s</div><div className="since">{fmtDate(data.startDate)}</div>
-  </div>
-  <div className="today card"><div><Sparkles size={18}/><b>Aujourd'hui pour nous</b></div><p>{questions[d%questions.length]}</p><button onClick={()=>setTab("chat")}>Répondre à deux <ArrowRight size={14}/></button></div>
-  <div className="grid4">
-   <Quick icon={MessageCircleHeart} text="Écrire" onClick={()=>setTab("chat")}/><Quick icon={Camera} text="Souvenir" onClick={()=>setTab("story")}/><Quick icon={Gift} text="Surprise" onClick={()=>setTab("story")}/><Quick icon={Wallet} text="Projet" onClick={()=>setTab("money")}/>
-  </div>
-  <div className="card verse"><BookOpenText size={17}/><p>« {verse[1]} »</p><b>{verse[0]}</b></div>
- </div>
-}
 function Quick({icon:I,text,onClick}){return <button className="quick" onClick={onClick}><I size={19}/><span>{text}</span></button>}
 
 function Chat({data,name,save}){
