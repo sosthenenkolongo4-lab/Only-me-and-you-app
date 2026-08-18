@@ -2,30 +2,28 @@ import React, { useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import {
   Heart, Home, MessageCircleHeart, Calendar, Wallet, Gamepad2, BookOpenText,
-  Sparkles, Send, Check, LogOut, Users, Plus, Trash2, Star, RefreshCw,
-  Lock, BellRing
+  Sparkles, Send, Check, LogOut, Plus, Trash2, Star, RefreshCw, Lock
 } from "lucide-react";
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+// Initialisation sécurisée de Supabase
+const SUPABASE_URL = import.meta.env?.VITE_SUPABASE_URL || "";
+const SUPABASE_ANON_KEY = import.meta.env?.VITE_SUPABASE_ANON_KEY || "";
 
 const supabase = SUPABASE_URL && SUPABASE_ANON_KEY
   ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
   : null;
 
+// Structure de données par défaut
 const EMPTY = {
   couple_id: "",
   names: { you: "", partner: "" },
   startDate: new Date().toISOString().slice(0, 10),
   messages: [],
-  memories: [],
-  events: [],
   notes: [],
+  events: [],
   goals: [],
   transactions: [],
-  score: { you: 0, partner: 0 },
-  savedVerses: [],
-  settings: { reminders: true, sound: false }
+  savedVerses: []
 };
 
 const verses = [
@@ -54,23 +52,418 @@ function mergeData(raw) {
     ...EMPTY,
     ...raw,
     names: { ...EMPTY.names, ...(raw?.names || {}) },
-    score: { ...EMPTY.score, ...(raw?.score || {}) },
-    settings: { ...EMPTY.settings, ...(raw?.settings || {}) },
     messages: raw?.messages || [],
-    memories: raw?.memories || [],
-    events: raw?.events || [],
     notes: raw?.notes || [],
+    events: raw?.events || [],
     goals: raw?.goals || [],
     transactions: raw?.transactions || [],
     savedVerses: raw?.savedVerses || []
   };
 }
 
-export default function App() {
+/* ===================== CSS ET DESIGN INTÉGRÉS ===================== */
+function GlobalStyles() {
+  return (
+    <style>{`
+      :root {
+        --bg-main: #0f172a;
+        --bg-card: rgba(30, 41, 59, 0.75);
+        --border-color: rgba(255, 255, 255, 0.12);
+        --accent-pink: #ec4899;
+        --accent-rose: #f43f5e;
+        --text-light: #f8fafc;
+        --text-dim: #94a3b8;
+        --radius: 16px;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      }
+
+      body {
+        background-color: var(--bg-main);
+        color: var(--text-light);
+        display: flex;
+        justify-content: center;
+        min-height: 100vh;
+      }
+
+      .app-container {
+        width: 100%;
+        max-width: 480px;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        background: radial-gradient(circle at top, #1e1b4b 0%, #0f172a 100%);
+        position: relative;
+        padding-bottom: 80px;
+        box-shadow: 0 0 40px rgba(0,0,0,0.5);
+      }
+
+      .topbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 16px 20px;
+        background: rgba(15, 23, 42, 0.85);
+        backdrop-filter: blur(12px);
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        border-bottom: 1px solid var(--border-color);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 700;
+        font-size: 1.1rem;
+        color: var(--accent-pink);
+      }
+
+      .brand span { color: var(--text-dim); }
+
+      .sync-status {
+        font-size: 0.75rem;
+        color: #4ade80;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .sync-dot {
+        width: 8px;
+        height: 8px;
+        background-color: #4ade80;
+        border-radius: 50%;
+        box-shadow: 0 0 8px #4ade80;
+      }
+
+      .main-content {
+        flex: 1;
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+      }
+
+      .bottom-nav {
+        position: fixed;
+        bottom: 0;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 100%;
+        max-width: 480px;
+        height: 65px;
+        background: rgba(15, 23, 42, 0.92);
+        backdrop-filter: blur(12px);
+        border-top: 1px solid var(--border-color);
+        display: flex;
+        justify-content: space-around;
+        align-items: center;
+        z-index: 100;
+      }
+
+      .bottom-nav button {
+        background: none;
+        border: none;
+        color: var(--text-dim);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        font-size: 0.7rem;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        flex: 1;
+      }
+
+      .bottom-nav button.active {
+        color: var(--accent-pink);
+      }
+
+      .card {
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius);
+        padding: 18px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        backdrop-filter: blur(8px);
+      }
+
+      .page-title h2 { font-size: 1.4rem; font-weight: 700; margin-bottom: 4px; }
+      .page-title p { font-size: 0.85rem; color: var(--text-dim); }
+
+      input, select, textarea {
+        width: 100%;
+        padding: 12px 14px;
+        background: rgba(0, 0, 0, 0.25);
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        color: white;
+        font-size: 0.95rem;
+        outline: none;
+      }
+
+      input:focus, textarea:focus { border-color: var(--accent-pink); }
+
+      button.primary {
+        background: linear-gradient(135deg, var(--accent-pink), var(--accent-rose));
+        color: white;
+        border: none;
+        padding: 12px;
+        border-radius: 10px;
+        font-weight: 600;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        transition: opacity 0.2s;
+      }
+
+      button.primary:hover { opacity: 0.9; }
+
+      button.secondary {
+        background: rgba(255, 255, 255, 0.08);
+        color: white;
+        border: 1px solid var(--border-color);
+        padding: 12px;
+        border-radius: 10px;
+        font-weight: 600;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+      }
+
+      .pair-page {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        padding: 24px;
+        text-align: center;
+        gap: 16px;
+      }
+
+      .pair-card {
+        width: 100%;
+        max-width: 360px;
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius);
+        padding: 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        text-align: left;
+      }
+
+      .seg {
+        display: flex;
+        background: rgba(0, 0, 0, 0.3);
+        padding: 4px;
+        border-radius: 10px;
+      }
+
+      .seg button {
+        flex: 1;
+        padding: 8px;
+        background: none;
+        border: none;
+        color: var(--text-dim);
+        border-radius: 8px;
+        cursor: pointer;
+      }
+
+      .seg button.on {
+        background: var(--accent-pink);
+        color: white;
+      }
+
+      .home-screen {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        text-align: center;
+      }
+
+      .days-card {
+        background: linear-gradient(135deg, rgba(236, 72, 153, 0.2), rgba(244, 63, 94, 0.2));
+        border: 1px solid var(--accent-pink);
+        border-radius: var(--radius);
+        padding: 30px;
+        text-align: center;
+      }
+
+      .days-num {
+        font-size: 3.5rem;
+        font-weight: 800;
+        color: var(--accent-pink);
+      }
+
+      .couple-names { font-size: 1.2rem; font-weight: 600; }
+      .days-label { font-size: 0.9rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; }
+
+      .chat-box {
+        height: 380px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .msg {
+        max-width: 80%;
+        padding: 10px 14px;
+        border-radius: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .msg.mine { align-self: flex-end; background: var(--accent-pink); color: white; }
+      .msg.theirs { align-self: flex-start; background: rgba(255, 255, 255, 0.1); }
+      .msg small { font-size: 0.65rem; opacity: 0.7; }
+
+      .composer { display: flex; gap: 8px; margin-top: 12px; }
+      .composer button {
+        background: var(--accent-pink);
+        border: none;
+        color: white;
+        padding: 0 16px;
+        border-radius: 10px;
+        cursor: pointer;
+      }
+
+      .timeline { display: flex; flex-direction: column; gap: 12px; }
+      .timeline-item { display: flex; align-items: flex-start; gap: 12px; }
+      .timeline-item .dot {
+        background: var(--accent-pink);
+        color: white;
+        padding: 6px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-top: 4px;
+      }
+      .timeline-item .card { flex: 1; }
+
+      .inline { display: flex; gap: 8px; }
+      .inline input { flex: 1; }
+      .inline button {
+        background: var(--accent-pink);
+        border: none;
+        color: white;
+        padding: 0 14px;
+        border-radius: 10px;
+        cursor: pointer;
+      }
+
+      .goal-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        padding: 10px 12px;
+        background: rgba(0, 0, 0, 0.2);
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        color: white;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .goal-item.done { opacity: 0.5; text-decoration: line-through; }
+      .circle { width: 15px; height: 15px; border: 2px solid var(--text-dim); border-radius: 50%; display: inline-block; }
+
+      .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+      .money-hero {
+        background: rgba(0, 0, 0, 0.3);
+        border: 1px solid var(--border-color);
+        border-radius: var(--radius);
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+      }
+      .money-hero strong { font-size: 2rem; }
+
+      .list { display: flex; flex-direction: column; gap: 10px; }
+      .icon-btn { background: none; border: none; color: #f87171; cursor: pointer; padding: 6px; }
+      .empty-state { text-align: center; color: var(--text-dim); font-size: 0.9rem; padding: 12px; }
+
+      .game-card, .verse-card { align-items: center; text-align: center; gap: 14px; }
+      .tag {
+        background: rgba(236, 72, 153, 0.2);
+        color: var(--accent-pink);
+        font-size: 0.75rem;
+        font-weight: 700;
+        padding: 4px 10px;
+        border-radius: 20px;
+      }
+
+      .actions { display: flex; gap: 10px; width: 100%; }
+      .actions button {
+        flex: 1;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid var(--border-color);
+        color: white;
+        padding: 10px;
+        border-radius: 10px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+      }
+
+      .code-input { text-align: center; letter-spacing: 4px; font-weight: bold; }
+      .code-tip { font-size: 0.75rem; color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
+      .loading-screen { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; color: var(--accent-pink); }
+    `}</style>
+  );
+}
+
+/* ===================== GESTIONNAIRE D'ERREURS ===================== */
+class ErrorBoundary extends React.Component {
+  state = { error: null };
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 24, color: "white", background: "#7f1d1d", minHeight: "100vh" }}>
+          <h2>Une erreur s'est produite</h2>
+          <pre style={{ background: "rgba(0,0,0,0.3)", padding: 16, borderRadius: 8, overflow: "auto", marginTop: 12 }}>
+            {this.state.error.toString()}
+          </pre>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+/* ===================== APPLICATION PRINCIPALE ===================== */
+function App() {
   const [session, setSession] = useState(null);
   const [room, setRoom] = useState(localStorage.getItem("oamy:room") || "");
   const [name, setName] = useState(localStorage.getItem("oamy:name") || "");
-  const [role, setRole] = useState(localStorage.getItem("oamy:role") || "you");
   const [data, setData] = useState(EMPTY);
   const [tab, setTab] = useState("home");
   const [loading, setLoading] = useState(true);
@@ -134,7 +527,7 @@ export default function App() {
   async function login() {
     setError("");
     if (!supabase) {
-      setError("Ajoute les clés Supabase dans .env.local.");
+      setError("Les clés Supabase ne sont pas configurées.");
       return;
     }
     const { data, error } = await supabase.auth.signInAnonymously();
@@ -146,7 +539,7 @@ export default function App() {
     const r = (typeof overrideRoom === "string" ? overrideRoom : room).trim().toUpperCase();
     const n = name.trim();
     if (!r || !n) {
-      setError("Entre ton prénom et le code du couple.");
+      setError("Remplis ton prénom et le code de couple.");
       return;
     }
     localStorage.setItem("oamy:room", r);
@@ -176,35 +569,37 @@ export default function App() {
   }
 
   if (!supabase) return <SetupHelp />;
+
   if (!room || !session) {
     return (
-      <Pairing
-        name={name}
-        setName={setName}
-        room={room}
-        setRoom={setRoom}
-        role={role}
-        setRole={setRole}
-        join={join}
-        create={join}
-        error={error}
-      />
+      <Shell>
+        <Pairing
+          name={name}
+          setName={setName}
+          room={room}
+          setRoom={setRoom}
+          join={join}
+          create={join}
+          error={error}
+        />
+      </Shell>
     );
   }
-  if (loading) return <Loading />;
+
+  if (loading) return <Shell><Loading /></Shell>;
 
   return (
     <Shell>
       <div className="topbar">
         <div className="brand">
-          <Heart fill="currentColor" size={17} /> Only Me <span>&</span> You
+          <Heart fill="currentColor" size={18} /> Only Me <span>&</span> You
         </div>
-        <div className="sync">
-          <span /> Synchronisé
+        <div className="sync-status">
+          <span className="sync-dot" /> En ligne
         </div>
       </div>
 
-      <main className="main">
+      <main className="main-content">
         {tab === "home" && <HomeScreen data={data} name={name} />}
         {tab === "chat" && <Chat data={data} name={name} save={save} />}
         {tab === "story" && <Story data={data} save={save} />}
@@ -219,33 +614,40 @@ export default function App() {
   );
 }
 
-/* ===================== COMPOSANTS DE BASE ===================== */
+/* ===================== SOUS-COMPOSANTS ===================== */
 
 function Shell({ children }) {
-  return <div className="app">{children}</div>;
+  return (
+    <div className="app-container">
+      <GlobalStyles />
+      {children}
+    </div>
+  );
 }
 
 function Loading() {
   return (
-    <div className="loading-page">
-      <Heart className="pulse" fill="currentColor" size={42} />
-      <p>Chargement de votre histoire...</p>
+    <div className="loading-screen">
+      <Heart fill="currentColor" size={42} />
+      <p>Chargement de votre espace...</p>
     </div>
   );
 }
 
 function SetupHelp() {
   return (
-    <div className="pair-page">
-      <h1>Configuration requise</h1>
-      <p>
-        Ajoute tes clés Supabase dans un fichier <code>.env.local</code> à la racine du projet :
-      </p>
-      <pre>
-        VITE_SUPABASE_URL=ton_url{"\n"}
-        VITE_SUPABASE_ANON_KEY=ta_clé
-      </pre>
-    </div>
+    <Shell>
+      <div className="pair-page">
+        <h2>Supabase non configuré</h2>
+        <p style={{ color: "var(--text-dim)", fontSize: "0.9rem" }}>
+          Ajoute tes identifiants dans le fichier <code>.env.local</code> de ton projet :
+        </p>
+        <div className="card" style={{ width: "100%", fontSize: "0.8rem", textAlign: "left" }}>
+          <code>VITE_SUPABASE_URL=ton_url</code><br />
+          <code>VITE_SUPABASE_ANON_KEY=ta_cle</code>
+        </div>
+      </div>
+    </Shell>
   );
 }
 
@@ -271,82 +673,69 @@ function Nav({ tab, setTab }) {
 
   return (
     <nav className="bottom-nav">
-      {items.map((item) => (
-        <button
-          key={item.id}
-          className={tab === item.id ? "active" : ""}
-          onClick={() => setTab(item.id)}
-        >
-          <item.icon size={20} />
-          <span>{item.label}</span>
-        </button>
-      ))}
+      {items.map((item) => {
+        const Icon = item.icon;
+        return (
+          <button
+            key={item.id}
+            className={tab === item.id ? "active" : ""}
+            onClick={() => setTab(item.id)}
+          >
+            <Icon size={19} />
+            <span>{item.label}</span>
+          </button>
+        );
+      })}
     </nav>
   );
 }
 
-/* ===================== ÉCRANS ===================== */
-
-function Pairing({ name, setName, room, setRoom, role, setRole, join, create, error }) {
+function Pairing({ name, setName, room, setRoom, join, create, error }) {
   const [mode, setMode] = useState("join");
-  const [newCode] = useState(() => Math.random().toString(36).slice(2, 8).toUpperCase());
+  const [genCode] = useState(() => Math.random().toString(36).slice(2, 8).toUpperCase());
 
   return (
     <div className="pair-page">
-      <div className="pair-glow" />
-      <div className="pair-logo">
-        <Heart fill="currentColor" size={42} />
-      </div>
-      <h1>Only Me & You</h1>
-      <p>Un espace privé pour écrire, partager et faire grandir votre histoire à deux.</p>
+      <Heart fill="currentColor" size={48} style={{ color: "var(--accent-pink)" }} />
+      <h1 style={{ fontSize: "1.8rem" }}>Only Me & You</h1>
+      <p style={{ color: "var(--text-dim)", fontSize: "0.9rem" }}>Votre espace intime et partagé pour deux.</p>
 
       <div className="pair-card">
         <div className="seg">
-          <button className={mode === "join" ? "on" : ""} onClick={() => setMode("join")}>
-            Rejoindre
-          </button>
-          <button className={mode === "create" ? "on" : ""} onClick={() => setMode("create")}>
-            Créer
-          </button>
+          <button className={mode === "join" ? "on" : ""} onClick={() => setMode("join")}>Rejoindre</button>
+          <button className={mode === "create" ? "on" : ""} onClick={() => setMode("create")}>Créer</button>
         </div>
 
-        <label>Ton prénom</label>
+        <label style={{ fontSize: "0.85rem", color: "var(--text-dim)" }}>Ton prénom</label>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex. Sosthène" />
-
-        <label>Je suis</label>
-        <select value={role} onChange={(e) => setRole(e.target.value)}>
-          <option value="you">Moi</option>
-          <option value="partner">Partenaire</option>
-        </select>
 
         {mode === "create" ? (
           <>
-            <label>Code de votre couple généré</label>
-            <input value={newCode} readOnly className="code-input" />
+            <label style={{ fontSize: "0.85rem", color: "var(--text-dim)" }}>Code du couple généré</label>
+            <input value={genCode} readOnly className="code-input" />
             <div className="code-tip">
-              <Lock size={14} /> Garde ce code privé et partage-le uniquement à ta partenaire
+              <Lock size={14} /> Partage ce code uniquement à ton partenaire.
             </div>
-            <button className="primary" onClick={() => create(newCode)}>
-              <Heart size={16} /> Créer notre histoire
+            <button className="primary" onClick={() => create(genCode)}>
+              <Heart size={16} /> Créer notre espace
             </button>
           </>
         ) : (
           <>
-            <label>Code de votre couple</label>
+            <label style={{ fontSize: "0.85rem", color: "var(--text-dim)" }}>Code du couple</label>
             <input
               value={room}
               onChange={(e) => setRoom(e.target.value.toUpperCase())}
               placeholder="Ex. LOVE123"
             />
             <button className="primary" onClick={join}>
-              <Heart size={16} /> Entrer dans notre histoire
+              <Heart size={16} /> Rejoindre l'espace
             </button>
           </>
         )}
 
-        {error && <div className="error">{error}</div>}
+        {error && <div style={{ color: "#f87171", fontSize: "0.8rem" }}>{error}</div>}
       </div>
-      <small>Synchronisation en temps réel • Chaque appareil voit les mêmes données</small>
     </div>
   );
 }
@@ -356,13 +745,13 @@ function HomeScreen({ data, name }) {
   const partnerName = data.names?.you === name ? data.names?.partner : data.names?.you;
 
   return (
-    <div className="home">
+    <div className="home-screen">
       <div className="days-card">
         <div className="days-num">{d}</div>
-        <div className="days-label">Jours ensemble</div>
+        <div className="days-label">Jours d'amour ensemble</div>
       </div>
       <div className="couple-names">
-        {name} & {partnerName || "..."}
+        {name || "Moi"} ❤️ {partnerName || "Partenaire"}
       </div>
     </div>
   );
@@ -385,15 +774,13 @@ function Chat({ data, name, save }) {
 
   return (
     <div>
-      <Title title="Notre conversation" sub="Un petit espace rien qu'à vous deux." />
-      <div className="chat card">
-        {data.messages.length === 0 && <div className="empty">Commencez votre conversation ❤️</div>}
+      <Title title="Notre Discussion" sub="Espace de discussion privé." />
+      <div className="chat-box card">
+        {data.messages.length === 0 && <div className="empty-state">Envoyez votre premier mot doux...</div>}
         {data.messages.map((m) => (
           <div className={"msg " + (m.from === name ? "mine" : "theirs")} key={m.id}>
             <span>{m.text}</span>
-            <small>
-              {m.from} · {new Date(m.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
-            </small>
+            <small>{m.from} • {new Date(m.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</small>
           </div>
         ))}
       </div>
@@ -402,11 +789,9 @@ function Chat({ data, name, save }) {
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && send()}
-          placeholder="Écris quelque chose de doux…"
+          placeholder="Écris un message..."
         />
-        <button onClick={send}>
-          <Send size={17} />
-        </button>
+        <button onClick={send}><Send size={18} /></button>
       </div>
     </div>
   );
@@ -434,7 +819,7 @@ function Story({ data, save }) {
     setGoal("");
   };
 
-  const toggle = (id) =>
+  const toggleGoal = (id) =>
     save({
       ...data,
       goals: data.goals.map((g) => (g.id === id ? { ...g, done: !g.done } : g))
@@ -442,50 +827,41 @@ function Story({ data, save }) {
 
   return (
     <div>
-      <Title title="Notre histoire" sub="Les petits chapitres qui deviennent de grands souvenirs." />
+      <Title title="Notre Histoire" sub="Vos souvenirs et objectifs partagés." />
 
       <div className="timeline">
         {data.notes.map((n) => (
           <div className="timeline-item" key={n.id}>
-            <div className="dot">
-              <Heart size={12} fill="currentColor" />
-            </div>
+            <div className="dot"><Heart size={12} fill="currentColor" /></div>
             <div className="card">
-              <small>{new Date(n.date).toLocaleDateString("fr-FR")}</small>
+              <small style={{ color: "var(--text-dim)" }}>{new Date(n.date).toLocaleDateString("fr-FR")}</small>
               <p>{n.text}</p>
             </div>
           </div>
         ))}
-        {!data.notes.length && (
-          <div className="empty card">Votre histoire commence ici. Ajoutez votre premier souvenir.</div>
-        )}
       </div>
 
-      <div className="card">
-        <h3>💌 Lettre / mot doux</h3>
+      <div className="card" style={{ marginTop: 16 }}>
+        <h3>Nouveau Souvenir</h3>
         <textarea
           value={note}
           onChange={(e) => setNote(e.target.value)}
-          placeholder="Écris quelque chose que l'autre pourra relire plus tard…"
+          placeholder="Écris une note ou un souvenir..."
         />
-        <button className="primary" onClick={addNote}>
-          <Plus size={15} /> Ajouter à notre histoire
-        </button>
+        <button className="primary" onClick={addNote}><Plus size={16} /> Enregistrer</button>
       </div>
 
-      <div className="card">
-        <h3>🌱 Nos rêves</h3>
+      <div className="card" style={{ marginTop: 16 }}>
+        <h3>Objectifs & Rêves</h3>
         {data.goals.map((g) => (
-          <button className={"goal " + (g.done ? "done" : "")} key={g.id} onClick={() => toggle(g.id)}>
-            <span>{g.done ? <Check size={15} /> : <span className="circle" />}</span>
+          <button className={"goal-item " + (g.done ? "done" : "")} key={g.id} onClick={() => toggleGoal(g.id)}>
+            <span>{g.done ? <Check size={14} /> : <span className="circle" />}</span>
             {g.text}
           </button>
         ))}
-        <div className="inline">
-          <input value={goal} onChange={(e) => setGoal(e.target.value)} placeholder="Un rêve à réaliser…" />
-          <button onClick={addGoal}>
-            <Plus size={16} />
-          </button>
+        <div className="inline" style={{ marginTop: 8 }}>
+          <input value={goal} onChange={(e) => setGoal(e.target.value)} placeholder="Ajouter un projet..." />
+          <button onClick={addGoal}><Plus size={16} /></button>
         </div>
       </div>
     </div>
@@ -508,32 +884,25 @@ function Agenda({ data, save }) {
 
   return (
     <div>
-      <Title title="Notre agenda" sub="Les dates qui comptent pour nous." />
+      <Title title="Agenda" sub="Vos rendez-vous et moments importants." />
       <div className="card">
-        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ex. Dîner, anniversaire…" />
+        <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Événement (ex. Sortie restaurant)" />
         <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-        <button className="primary" onClick={add}>
-          <Plus size={15} /> Ajouter
-        </button>
+        <button className="primary" onClick={add}><Plus size={16} /> Ajouter à l'agenda</button>
       </div>
-      <div className="list">
-        {[...data.events]
-          .sort((a, b) => a.date.localeCompare(b.date))
-          .map((e) => (
-            <div className="row card" key={e.id}>
-              <Calendar size={18} />
-              <div>
-                <b>{e.title}</b>
-                <small>{fmtDate(e.date)}</small>
-              </div>
-              <button
-                className="icon"
-                onClick={() => save({ ...data, events: data.events.filter((x) => x.id !== e.id) })}
-              >
-                <Trash2 size={15} />
-              </button>
+      <div className="list" style={{ marginTop: 16 }}>
+        {data.events.map((e) => (
+          <div className="row card" key={e.id}>
+            <Calendar size={18} />
+            <div style={{ flex: 1 }}>
+              <b>{e.title}</b>
+              <div><small style={{ color: "var(--text-dim)" }}>{fmtDate(e.date)}</small></div>
             </div>
-          ))}
+            <button className="icon-btn" onClick={() => save({ ...data, events: data.events.filter((x) => x.id !== e.id) })}>
+              <Trash2 size={16} />
+            </button>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -542,107 +911,47 @@ function Agenda({ data, save }) {
 function Money({ data, save }) {
   const [label, setLabel] = useState("");
   const [amount, setAmount] = useState("");
-  const [type, setType] = useState("expense");
+  const [type, setType] = useState("income");
 
-  const total = data.transactions.reduce((sum, t) => {
-    return sum + (t.type === "income" ? t.amount : -t.amount);
-  }, 0);
+  const total = data.transactions.reduce((sum, t) => sum + (t.type === "income" ? t.amount : -t.amount), 0);
 
   const add = () => {
     const n = Number(amount);
     if (!label.trim() || !n || n <= 0) return;
-
     save({
       ...data,
-      transactions: [
-        {
-          id: uid(),
-          label: label.trim(),
-          amount: n,
-          type: type,
-          date: new Date().toISOString()
-        },
-        ...data.transactions
-      ]
+      transactions: [{ id: uid(), label: label.trim(), amount: n, type, date: new Date().toISOString() }, ...data.transactions]
     });
-
     setLabel("");
     setAmount("");
-    setType("expense");
-  };
-
-  const remove = (id) => {
-    save({
-      ...data,
-      transactions: data.transactions.filter((t) => t.id !== id)
-    });
   };
 
   return (
     <div>
-      <Title title="Nos projets & finances" sub="Construire ensemble, petit à petit." />
-
-      <div className="moneyHero">
-        <small>Solde actuel</small>
-        <strong style={{ color: total >= 0 ? "#4ade80" : "#f87171" }}>
-          {total.toLocaleString("fr-FR")} $
-        </strong>
-        <span>Chaque petit effort compte ❤️</span>
+      <Title title="Projets & Budget" sub="Gérez vos dépenses et épargnes communes." />
+      <div className="money-hero">
+        <small style={{ color: "var(--text-dim)" }}>Solde commun</small>
+        <strong style={{ color: total >= 0 ? "#4ade80" : "#f87171" }}>{total.toLocaleString("fr-FR")} $</strong>
       </div>
-
-      <div className="card">
-        <h3>Ajouter une opération</h3>
-
-        <div className="seg" style={{ marginBottom: 12 }}>
-          <button
-            className={type === "income" ? "on" : ""}
-            onClick={() => setType("income")}
-          >
-            + Ajouter
-          </button>
-          <button
-            className={type === "expense" ? "on" : ""}
-            onClick={() => setType("expense")}
-          >
-            − Soustraire
-          </button>
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="seg">
+          <button className={type === "income" ? "on" : ""} onClick={() => setType("income")}>+ Entrée</button>
+          <button className={type === "expense" ? "on" : ""} onClick={() => setType("expense")}>− Dépense</button>
         </div>
-
-        <input
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
-          placeholder="Ex. Épargne voyage, Restaurant..."
-        />
-        <input
-          type="number"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          placeholder="Montant"
-          min="0"
-        />
-        <button className="primary" onClick={add}>
-          <Plus size={15} />
-          {type === "income" ? "Ajouter au solde" : "Soustraire du solde"}
-        </button>
+        <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Description (ex. Épargne)" />
+        <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Montant" />
+        <button className="primary" onClick={add}><Plus size={16} /> Valider</button>
       </div>
-
-      <div className="list">
-        {data.transactions.length === 0 && (
-          <div className="empty card">Aucune opération pour le moment.</div>
-        )}
-
+      <div className="list" style={{ marginTop: 16 }}>
         {data.transactions.map((t) => (
           <div className="row card" key={t.id}>
             <Wallet size={18} />
             <div style={{ flex: 1 }}>
               <b>{t.label}</b>
-              <small>
-                {t.type === "income" ? "+" : "−"}
-                {t.amount.toLocaleString("fr-FR")} $
-              </small>
+              <div><small style={{ color: "var(--text-dim)" }}>{t.type === "income" ? "+" : "-"}{t.amount} $</small></div>
             </div>
-            <button className="icon" onClick={() => remove(t.id)}>
-              <Trash2 size={15} />
+            <button className="icon-btn" onClick={() => save({ ...data, transactions: data.transactions.filter((x) => x.id !== t.id) })}>
+              <Trash2 size={16} />
             </button>
           </div>
         ))}
@@ -661,10 +970,7 @@ function Games({ data, save }) {
     if (!answer.trim()) return;
     save({
       ...data,
-      notes: [
-        { id: uid(), text: "🎮 " + q + " — " + answer, date: new Date().toISOString() },
-        ...data.notes
-      ]
+      notes: [{ id: uid(), text: "🎮 " + q + " — " + answer, date: new Date().toISOString() }, ...data.notes]
     });
     setAnswer("");
     next();
@@ -672,18 +978,14 @@ function Games({ data, save }) {
 
   return (
     <div>
-      <Title title="Jeux à deux" sub="Riez, parlez et découvrez-vous encore." />
-      <div className="game card">
-        <Sparkles size={22} />
+      <Title title="Jeux & Questions" sub="Pour mieux se découvrir chaque jour." />
+      <div className="card game-card">
+        <Sparkles size={24} style={{ color: "var(--accent-pink)" }} />
         <div className="tag">QUESTION DU JOUR</div>
         <h3>{q}</h3>
-        <textarea value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Votre réponse…" />
-        <button className="primary" onClick={saveA}>
-          <Check size={15} /> Garder notre réponse
-        </button>
-        <button className="secondary" onClick={next}>
-          <RefreshCw size={15} /> Nouvelle question
-        </button>
+        <textarea value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Ta réponse..." />
+        <button className="primary" onClick={saveA}><Check size={16} /> Enregistrer la réponse</button>
+        <button className="secondary" onClick={next}><RefreshCw size={16} /> Question suivante</button>
       </div>
     </div>
   );
@@ -695,14 +997,6 @@ function More({ data, save, leave }) {
   const [partner, setPartner] = useState(data.names.partner || "");
   const [start, setStart] = useState(data.startDate);
 
-  const toggle = () =>
-    save({
-      ...data,
-      savedVerses: data.savedVerses.includes(verses[v][0])
-        ? data.savedVerses.filter((x) => x !== verses[v][0])
-        : [...data.savedVerses, verses[v][0]]
-    });
-
   const saveNames = () =>
     save({
       ...data,
@@ -712,54 +1006,36 @@ function More({ data, save, leave }) {
 
   return (
     <div>
-      <Title title="Plus pour nous" sub="Des petits détails qui rendent l'histoire spéciale." />
-
+      <Title title="Paramètres" sub="Personnalisation de votre espace." />
       <div className="card">
-        <h3>Vos prénoms & date de début</h3>
+        <h3>Configuration du couple</h3>
         <input value={you} onChange={(e) => setYou(e.target.value)} placeholder="Ton prénom" />
-        <input value={partner} onChange={(e) => setPartner(e.target.value)} placeholder="Prénom du/de la partenaire" />
+        <input value={partner} onChange={(e) => setPartner(e.target.value)} placeholder="Prénom du partenaire" />
         <input type="date" value={start} onChange={(e) => setStart(e.target.value)} />
-        <button className="primary" onClick={saveNames}>
-          <Check size={15} /> Enregistrer
-        </button>
+        <button className="primary" onClick={saveNames}><Check size={16} /> Enregistrer</button>
       </div>
 
-      <div className="card verse bigVerse">
-        <BookOpenText size={22} />
+      <div className="card verse-card" style={{ marginTop: 16 }}>
+        <BookOpenText size={24} style={{ color: "var(--accent-pink)" }} />
         <p>« {verses[v][1]} »</p>
         <b>{verses[v][0]}</b>
-        <div className="actions">
-          <button onClick={toggle}>
-            <Star size={15} fill={data.savedVerses.includes(verses[v][0]) ? "currentColor" : "none"} /> Favori
-          </button>
-          <button onClick={() => setV((v + 1) % verses.length)}>
-            <RefreshCw size={15} /> Autre
-          </button>
-        </div>
-      </div>
-
-      {/* Bouton Se déconnecter */}
-      <div className="card" style={{ borderColor: "#f87171", background: "rgba(248, 113, 113, 0.08)" }}>
-        <h3 style={{ color: "#f87171", marginBottom: 8 }}>Compte</h3>
-        <p style={{ fontSize: 14, opacity: 0.85, marginBottom: 14 }}>
-          Tu peux te déconnecter de cet appareil. Tes données restent sauvegardées dans le cloud.
-        </p>
-        <button
-          className="primary"
-          onClick={leave}
-          style={{
-            background: "#ef4444",
-            width: "100%",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 8
-          }}
-        >
-          <LogOut size={17} />
-          Se déconnecter
+        <button className="secondary" onClick={() => setV((v + 1) % verses.length)}>
+          <RefreshCw size={15} /> Verset suivant
         </button>
       </div>
+
+      <button className="primary" onClick={leave} style={{ marginTop: 20, background: "#ef4444", width: "100%" }}>
+        <LogOut size={16} /> Se déconnecter
+      </button>
     </div>
   );
 }
+
+export default function AppWithErrorBoundary() {
+  return (
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+  );
+}
+
