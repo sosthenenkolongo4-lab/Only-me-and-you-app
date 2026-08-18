@@ -1,4 +1,3 @@
-import "./App.css"; // ou "./index.css" selon le nom de votre fichier CSS
 import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
