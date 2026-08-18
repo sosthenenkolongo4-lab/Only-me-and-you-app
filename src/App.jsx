@@ -550,32 +550,65 @@ function Agenda({ data, save }) {
 }
 
 function Money({ data, save }) {
-  const [label, setLabel] = useState(""), [amount, setAmount] = useState(""), [type, setType] = useState("expense");
-  const income = data.transactions.filter(t => t.type === "income").reduce((s, t) => s + t.amount, 0);
-  const expense = data.transactions.filter(t => t.type === "expense").reduce((s, t) => s + t.amount, 0);
-  const total = income - expense;
+  const [label, setLabel] = useState(""), [amount, setAmount] = useState(""), [type, setType] = useState("expense"), [currency, setCurrency] = useState("USD");
+
+  const calc = (cur) => {
+    const list = data.transactions.filter(t => (t.currency || "USD") === cur);
+    const income = list.filter(t => t.type === "income").reduce((s, t) => s + t.amount, 0);
+    const expense = list.filter(t => t.type === "expense").reduce((s, t) => s + t.amount, 0);
+    return { income, expense, total: income - expense };
+  };
+  const usd = calc("USD");
+  const cdf = calc("CDF");
+
   const add = () => {
     const n = Number(amount);
     if (!label || !n) return;
-    save({ ...data, transactions: [{ id: uid(), label, amount: n, type, date: new Date().toISOString() }, ...data.transactions] });
+    save({ ...data, transactions: [{ id: uid(), label, amount: n, type, currency, date: new Date().toISOString() }, ...data.transactions] });
     setLabel(""); setAmount("");
   };
   const remove = id => save({ ...data, transactions: data.transactions.filter(t => t.id !== id) });
 
+  const fmt = (n, cur) => n.toLocaleString("fr-FR") + " " + (cur === "USD" ? "$" : "FC");
+
   return (
     <div>
       <Title title="Nos projets & finances" sub="Construire ensemble, petit à petit." />
-      <div className="moneyHero">
-        <small>Solde du projet</small>
-        <strong>{total.toLocaleString("fr-FR")} $</strong>
-        <div style={{ display: 'flex', justifyContent: 'center', gap: '16px', marginTop: '8px', fontSize: '0.85rem' }}>
-          <span style={{ color: '#4ade80' }}>+ {income.toLocaleString("fr-FR")} $</span>
-          <span style={{ color: '#f87171' }}>- {expense.toLocaleString("fr-FR")} $</span>
+
+      <div style={{ display: 'flex', gap: '10px' }}>
+        <div className="moneyHero" style={{ flex: 1 }}>
+          <small>Solde USD</small>
+          <strong>{fmt(usd.total, "USD")}</strong>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', marginTop: '8px', fontSize: '0.8rem' }}>
+            <span style={{ color: '#4ade80' }}>+ {fmt(usd.income, "USD")}</span>
+            <span style={{ color: '#f87171' }}>- {fmt(usd.expense, "USD")}</span>
+          </div>
+        </div>
+        <div className="moneyHero" style={{ flex: 1 }}>
+          <small>Solde CDF</small>
+          <strong>{fmt(cdf.total, "CDF")}</strong>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', marginTop: '8px', fontSize: '0.8rem' }}>
+            <span style={{ color: '#4ade80' }}>+ {fmt(cdf.income, "CDF")}</span>
+            <span style={{ color: '#f87171' }}>- {fmt(cdf.expense, "CDF")}</span>
+          </div>
         </div>
       </div>
+
       <div className="card">
         <input value={label} onChange={e => setLabel(e.target.value)} placeholder="Ex. Épargne voyage, Restaurant…" />
         <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="Montant" />
+
+        <div style={{ display: 'flex', gap: '8px', margin: '8px 0' }}>
+          <button
+            onClick={() => setCurrency("USD")}
+            style={{ flex: 1, padding: '8px', borderRadius: '8px', border: currency === "USD" ? '2px solid #6366f1' : '1px solid #ddd', background: currency === "USD" ? '#eef2ff' : '#fff', color: '#3730a3', fontWeight: 'bold' }}
+          >USD ($)</button>
+          <button
+            onClick={() => setCurrency("CDF")}
+            style={{ flex: 1, padding: '8px', borderRadius: '8px', border: currency === "CDF" ? '2px solid #6366f1' : '1px solid #ddd', background: currency === "CDF" ? '#eef2ff' : '#fff', color: '#3730a3', fontWeight: 'bold' }}
+          >Franc congolais (FC)</button>
+        </div>
+
         <div style={{ display: 'flex', gap: '8px', margin: '8px 0' }}>
           <button
             onClick={() => setType("income")}
@@ -586,13 +619,15 @@ function Money({ data, save }) {
             style={{ flex: 1, padding: '8px', borderRadius: '8px', border: type === "expense" ? '2px solid #f87171' : '1px solid #ddd', background: type === "expense" ? '#fef2f2' : '#fff', color: '#991b1b', fontWeight: 'bold' }}
           >- Dépense</button>
         </div>
+
         <button className="primary" onClick={add}><Plus size={15} /> Ajouter</button>
       </div>
+
       {data.transactions.map(t => (
         <div className="row card" key={t.id}>
           <Wallet size={18} style={{ color: t.type === "income" ? '#22c55e' : '#ef4444' }} />
-          <div><b>{t.label}</b></div>
-          <b style={{ color: t.type === "income" ? '#22c55e' : '#ef4444' }}>{t.type === "income" ? "+" : "-"}{t.amount} $</b>
+          <div><b>{t.label}</b><small>{t.currency || "USD"}</small></div>
+          <b style={{ color: t.type === "income" ? '#22c55e' : '#ef4444' }}>{t.type === "income" ? "+" : "-"}{fmt(t.amount, t.currency || "USD")}</b>
           <button className="icon" onClick={() => remove(t.id)}><Trash2 size={15} /></button>
         </div>
       ))}
@@ -654,7 +689,8 @@ function Games({ data, save }) {
           <Gift size={22} />
           <div className="tag">TU PRÉFÈRES…</div>
           <h3>{wyr[0]} <span style={{ opacity: 0.5 }}>ou</span> {wyr[1]}</h3>
-          <button className="primary" onClick={() => saveAnswer(wyr[0] + " ou " + wyr[1], answer || "choisi ensemble")}><Check size={15} /> Garder notre choix</button>
+          <textarea value={answer} onChange={e => setAnswer(e.target.value)} placeholder="Dites ce que vous avez choisi et pourquoi…" />
+          <button className="primary" onClick={() => saveAnswer(wyr[0] + " ou " + wyr[1], answer)}><Check size={15} /> Garder notre choix</button>
           <button className="secondary" onClick={nextWyr}><RefreshCw size={15} /> Nouveau dilemme</button>
           <button className="secondary" onClick={() => setMode("menu")}>← Retour</button>
         </div>
@@ -717,4 +753,4 @@ function More({ data, save, logout, room }) {
       </div>
     </div>
   );
-}
+        }
