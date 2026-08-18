@@ -152,9 +152,6 @@ export default function App(){
     <Nav tab={tab} setTab={setTab}/>
   </Shell>;
 }
-function Shell({ children }) {
-  return <div className="app">{children}</div>;
-}
 
 function Pairing({name, setName, room, setRoom, role, setRole, join, create, error}) {
   const [mode, setMode] = useState("join");
