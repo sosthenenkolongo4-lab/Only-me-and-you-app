@@ -262,4 +262,3 @@ function More({data,save}){
  const [v,setV]=useState(0);
  const toggle=()=>save({...data,savedVerses:data.savedVerses.includes(verses[v][0])?data.savedVerses.filter(x=>x!==verses[v][0]):[...data.savedVerses,verses[v][0]]});
  return <div><Title title="Plus pour nous" sub="Des petits détails qui rendent l'histoire spéciale."/><div className="card verse bigVerse"><BookOpenText size={22}/><p>« {verses[v][1]} »</p><b>{verses[v][0]}</b><div className="actions"><button onClick={toggle}><Star size={15} fill={data.savedVerses.includes(verses[v][0])?"currentColor":"none"}/> Favori</button><button onClick={()=>setV((v+1)%verses.length)}><RefreshCw size={15}/> Autre</button></div></div><div className="card settings"><div><BellRing size={16}/> Rappels</div><div><Users size={16}/> Couple synchronisé</div><div><LogOut size={16}/> <span>Pour quitter, efface le code de ce navigateur</span></div></div></div>
-}
