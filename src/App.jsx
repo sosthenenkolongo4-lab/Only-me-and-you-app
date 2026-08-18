@@ -253,3 +253,19 @@ function Games({data,save}){
 }
 function More({data,save}){ const [v,setV]=useState(0); const [you,setYou]=useState(data.names.you||""); const [partner,setPartner]=useState(data.names.partner||""); const [start,setStart]=useState(data.startDate); const toggle=()=>save({...data,savedVerses:data.savedVerses.includes(verses[v][0])?data.savedVerses.filter(x=>x!==verses[v][0]):[...data.savedVerses,verses[v][0]]}); const saveNames=()=>save({...data,names:{you:you.trim(),partner:partner.trim()},startDate:start}); return <div><Title title="Plus pour nous" sub="Des petits détails qui rendent l'histoire spéciale."/><div className="card"><h3>Vos prénoms &amp; date de début</h3><input value={you} onChange={e=>setYou(e.target.value)} placeholder="Ton prénom"/><input value={partner} onChange={e=>setPartner(e.target.value)} placeholder="Prénom du/de la partenaire"/><input type="date" value={start} onChange={e=>setStart(e.target.value)}/><button className="primary" onClick={saveNames}><Check size={15}/> Enregistrer</button></div><div className="card verse bigVerse"><BookOpenText size={22}/><p>« {verses[v][1]} »</p><b>{verses[v][0]}</b><div className="actions"><button onClick={toggle}><Star size={15} fill={data.savedVerses.includes(verses[v][0])?"currentColor":"none"}/> Favori</button><button onClick={()=>setV((v+1)%verses.length)}><RefreshCw size={15}/> Autre</button></div></div><div className="card settings"><div><BellRing size={16}/> Rappels</div><div><Users size={16}/> Couple synchronisé</div><div><LogOut size={16}/> <span>Pour quitter, efface le code de ce navigateur</span></div></div></div> }
 
+function HomeScreen({ data, name, setTab }) {
+  const d = days(data.startDate);
+  const partnerName = data.names?.you === name ? data.names?.partner : data.names?.you;
+
+  return (
+    <div className="home">
+      <div className="days-card">
+        <div className="days-num">{d}</div>
+        <div className="days-label">Jours ensemble</div>
+      </div>
+      <div className="couple-names">
+        {name} & {partnerName || "..."}
+      </div>
+    </div>
+  );
+}
