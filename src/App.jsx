@@ -3,7 +3,8 @@ import { createClient } from "@supabase/supabase-js";
 import {
   Heart, Home, MessageCircleHeart, Calendar, Wallet, Gamepad2, BookOpenText,
   Sparkles, Send, Camera, Gift, Check, Copy, LogOut, Users, Clock3,
-  Plus, Trash2, Star, RefreshCw, Lock, ArrowRight, X, BellRing, Settings
+  Plus, Trash2, Star, RefreshCw, Lock, ArrowRight, X, BellRing, Settings,
+  MapPin, Navigation
 } from "lucide-react";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -19,6 +20,7 @@ const EMPTY = {
   messages: [],
   memories: [],
   gameAnswers: [],
+  location: null,
   events: [],
   notes: [],
   goals: [],
@@ -75,6 +77,7 @@ function mergeData(raw) {
     messages: raw?.messages || [],
     memories: raw?.memories || [],
     gameAnswers: raw?.gameAnswers || [],
+    location: raw?.location || null,
     events: raw?.events || [],
     notes: raw?.notes || [],
     goals: raw?.goals || [],
@@ -83,15 +86,47 @@ function mergeData(raw) {
   };
 }
 
+function notifyIfNew(prev, next, myName) {
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  const checks = [
+    { list: "messages", label: "un nouveau message", appended: true },
+    { list: "notes", label: "un nouveau mot doux" },
+    { list: "gameAnswers", label: "une nouvelle réponse de jeu" },
+    { list: "memories", label: "une nouvelle photo" },
+  ];
+  checks.forEach(({ list, label, appended }) => {
+    const prevArr = prev[list] || [];
+    const nextArr = next[list] || [];
+    if (nextArr.length > prevArr.length) {
+      const latest = appended ? nextArr[nextArr.length - 1] : nextArr[0];
+      const author = latest && (latest.from || latest.author);
+      if (author && author !== myName) {
+        try {
+          new Notification("Only Me & You 💗", { body: `${author} a ajouté ${label}` });
+        } catch (e) {}
+      }
+    }
+  });
+}
+
 export default function App() {
   const [session, setSession] = useState(null);
   const [room, setRoom] = useState(localStorage.getItem("oamy:room") || "");
   const [name, setName] = useState(localStorage.getItem("oamy:name") || "");
   const [role, setRole] = useState(localStorage.getItem("oamy:role") || "you");
   const [data, setData] = useState(EMPTY);
+  const dataRef = React.useRef(EMPTY);
   const [tab, setTab] = useState("home");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  useEffect(() => { dataRef.current = data; }, [data]);
+
+  useEffect(() => {
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
+  }, []);
 
   useEffect(() => {
     if (!supabase) { setLoading(false); return; }
@@ -132,7 +167,11 @@ export default function App() {
         // Synchronisation en temps réel via Supabase realtime
         channel = supabase.channel("couple-" + roomCode)
           .on("postgres_changes", { event: "UPDATE", schema: "public", table: "couple_rooms", filter: `room_code=eq.${roomCode}` },
-            p => setData(mergeData(p.new.payload)))
+            p => {
+              const incoming = mergeData(p.new.payload);
+              notifyIfNew(dataRef.current, incoming, name);
+              setData(incoming);
+            })
           .subscribe();
       } else {
         // Création du salon avec initialisation propre des rôles
@@ -164,6 +203,7 @@ export default function App() {
     localStorage.setItem("oamy:room", r);
     localStorage.setItem("oamy:name", n);
     localStorage.setItem("oamy:role", targetRole);
+    localStorage.setItem("oamy:lastRoom", r);
 
     setRoom(r);
     setName(n);
@@ -181,10 +221,8 @@ export default function App() {
   function logout() {
     if (!window.confirm("Se déconnecter ? Vos données restent sauvegardées, il faudra juste retaper le code de votre couple pour revenir.")) return;
     localStorage.removeItem("oamy:room");
-    localStorage.removeItem("oamy:name");
-    localStorage.removeItem("oamy:role");
+    // On garde le prénom et le dernier code utilisé pour faciliter la reconnexion
     setRoom("");
-    setName("");
     setData(EMPTY);
     setTab("home");
   }
@@ -218,7 +256,7 @@ export default function App() {
 
 function Pairing({ name, setName, join, error }) {
   const [mode, setMode] = useState("join");
-  const [code, setCode] = useState("");
+  const [code, setCode] = useState(() => localStorage.getItem("oamy:lastRoom") || "");
   const [copied, setCopied] = useState(false);
 
   // Génération automatique d'un code unique à 6 caractères
@@ -357,6 +395,9 @@ function HomeScreen({ data, name, role, setTab, save }) {
   const [now, setNow] = useState(new Date());
   const [isEditingDate, setIsEditingDate] = useState(false);
   const [tempDate, setTempDate] = useState(data.startDate);
+  const [isEditingNames, setIsEditingNames] = useState(false);
+  const [tempYou, setTempYou] = useState(data.names.you || "");
+  const [tempPartner, setTempPartner] = useState(data.names.partner || "");
 
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
@@ -385,15 +426,37 @@ function HomeScreen({ data, name, role, setTab, save }) {
     setIsEditingDate(false);
   };
 
+  const handleSaveNames = () => {
+    save({ ...data, names: { you: tempYou.trim(), partner: tempPartner.trim() } });
+    setIsEditingNames(false);
+  };
+
   return (
     <div className="home">
       <div className="hero">
         <div className="floating"><Heart fill="currentColor" /><Heart /><Heart fill="currentColor" /></div>
         <div className="online"><span /> Votre espace est synchronisé</div>
 
-        <div className="couple-name">
+        <div className="couple-name" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
           {myName} <b>♡</b> {partnerName}
+          <button
+            onClick={() => { setTempYou(data.names.you || ""); setTempPartner(data.names.partner || ""); setIsEditingNames(!isEditingNames); }}
+            style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: '2px', opacity: 0.7 }}
+            title="Corriger les prénoms"
+          >
+            <Settings size={14} />
+          </button>
         </div>
+
+        {isEditingNames && (
+          <div style={{ marginTop: '10px', background: 'rgba(255,255,255,0.15)', padding: '10px', borderRadius: '8px', textAlign: 'left' }}>
+            <label style={{ fontSize: '0.75rem', display: 'block', marginBottom: '4px' }}>Ton prénom :</label>
+            <input value={tempYou} onChange={e => setTempYou(e.target.value)} style={{ color: '#000', padding: '5px', borderRadius: '4px', width: '100%', marginBottom: '8px' }} />
+            <label style={{ fontSize: '0.75rem', display: 'block', marginBottom: '4px' }}>Prénom du/de la partenaire :</label>
+            <input value={tempPartner} onChange={e => setTempPartner(e.target.value)} style={{ color: '#000', padding: '5px', borderRadius: '4px', width: '100%' }} />
+            <button onClick={handleSaveNames} className="primary" style={{ marginTop: '8px', padding: '4px 8px', fontSize: '0.8rem' }}>Enregistrer</button>
+          </div>
+        )}
 
         <div className="label">ensemble depuis</div>
         <div className="big">{totalDays}</div>
@@ -479,6 +542,7 @@ function Chat({ data, name, save }) {
 
 function Story({ data, save, name }) {
   const [note, setNote] = useState(""), [goal, setGoal] = useState("");
+  const [viewPhoto, setViewPhoto] = useState(null);
   const addNote = () => {
     if (!note.trim()) return;
     save({ ...data, notes: [{ id: uid(), text: note, date: new Date().toISOString(), author: name, reactions: [] }, ...data.notes] });
@@ -548,7 +612,12 @@ function Story({ data, save, name }) {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px', marginTop: '12px' }}>
             {data.memories.map(m => (
               <div key={m.id} style={{ position: 'relative' }}>
-                <img src={m.url} alt="" style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: '8px' }} />
+                <img
+                  src={m.url}
+                  alt=""
+                  onClick={() => setViewPhoto(m.url)}
+                  style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: '8px', cursor: 'pointer' }}
+                />
                 <button
                   onClick={() => removePhoto(m.id)}
                   style={{ position: 'absolute', top: 4, right: 4, background: 'rgba(0,0,0,0.55)', border: 'none', borderRadius: '50%', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}
@@ -561,6 +630,21 @@ function Story({ data, save, name }) {
         )}
         {!data.memories.length && <div className="empty" style={{ marginTop: '10px' }}>Aucune photo pour l'instant.</div>}
       </div>
+
+      {viewPhoto && (
+        <div
+          onClick={() => setViewPhoto(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
+        >
+          <button
+            onClick={() => setViewPhoto(null)}
+            style={{ position: 'absolute', top: 20, right: 20, background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: '50%', width: 36, height: 36, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          >
+            <X size={18} color="#fff" />
+          </button>
+          <img src={viewPhoto} alt="" style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: '10px' }} />
+        </div>
+      )}
 
       <div className="timeline">
         {data.notes.map(n => {
@@ -625,15 +709,84 @@ function Story({ data, save, name }) {
 
 function Agenda({ data, save }) {
   const [title, setTitle] = useState(""), [date, setDate] = useState("");
+  const [editingLoc, setEditingLoc] = useState(false);
+  const [locLabel, setLocLabel] = useState(data.location?.label || "");
+  const [locAddress, setLocAddress] = useState(data.location?.address || "");
+
   const add = () => {
     if (!title || !date) return;
     save({ ...data, events: [...data.events, { id: uid(), title, date }] });
     setTitle(""); setDate("");
   };
 
+  const saveLocation = () => {
+    if (!locLabel.trim() && !locAddress.trim()) return;
+    save({ ...data, location: { label: locLabel.trim(), address: locAddress.trim(), updatedAt: new Date().toISOString() } });
+    setEditingLoc(false);
+  };
+
+  const clearLocation = () => {
+    save({ ...data, location: null });
+    setLocLabel(""); setLocAddress("");
+  };
+
+  const mapsUrl = data.location?.address
+    ? "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(data.location.address)
+    : null;
+
   return (
     <div>
       <Title title="Notre agenda" sub="Les dates qui comptent pour nous." />
+
+      {!editingLoc && data.location ? (
+        <div style={{
+          position: 'relative', borderRadius: '18px', padding: '18px',
+          background: 'linear-gradient(135deg, #6E2338 0%, #4A1626 55%, #2B0F1A 100%)',
+          color: '#FBF3EC', marginBottom: '14px', overflow: 'hidden'
+        }}>
+          <div style={{ position: 'absolute', top: -30, right: -30, width: 120, height: 120, borderRadius: '50%', background: 'radial-gradient(circle, rgba(227,168,87,0.35), rgba(227,168,87,0))' }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: '#E9B9C4' }}>
+            <Navigation size={14} /> Notre prochaine destination
+          </div>
+          <div style={{ fontSize: '1.25rem', fontWeight: 700, marginTop: '8px', color: '#F3D9B1' }}>
+            {data.location.label || "Destination"}
+          </div>
+          {data.location.address && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', marginTop: '4px', color: '#E9B9C4' }}>
+              <MapPin size={13} /> {data.location.address}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: '8px', marginTop: '14px' }}>
+            {mapsUrl && (
+              <a href={mapsUrl} target="_blank" rel="noreferrer" style={{
+                flex: 1, textAlign: 'center', padding: '9px', borderRadius: '10px',
+                background: 'linear-gradient(135deg, #E3A857, #C9184A)', color: '#fff',
+                fontWeight: 700, fontSize: '0.85rem', textDecoration: 'none'
+              }}>
+                Ouvrir dans Maps
+              </a>
+            )}
+            <button
+              onClick={() => { setLocLabel(data.location.label); setLocAddress(data.location.address); setEditingLoc(true); }}
+              style={{ padding: '9px 12px', borderRadius: '10px', background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', fontSize: '0.85rem' }}
+            >
+              Modifier
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="card">
+          <h3>📍 Notre prochaine destination</h3>
+          <input value={locLabel} onChange={e => setLocLabel(e.target.value)} placeholder="Ex. Restaurant, chez Maman…" />
+          <input value={locAddress} onChange={e => setLocAddress(e.target.value)} placeholder="Adresse ou lieu" />
+          <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+            <button className="primary" onClick={saveLocation}><Check size={15} /> Enregistrer</button>
+            {data.location && <button className="secondary" onClick={() => setEditingLoc(false)}>Annuler</button>}
+            {data.location && <button className="secondary" onClick={clearLocation}><Trash2 size={14} /></button>}
+          </div>
+        </div>
+      )}
+
       <div className="card">
         <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Ex. Dîner, anniversaire…" />
         <input type="date" value={date} onChange={e => setDate(e.target.value)} />
