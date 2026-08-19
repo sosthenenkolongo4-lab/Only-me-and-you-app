@@ -179,6 +179,7 @@ export default function App() {
   }
 
   function logout() {
+    if (!window.confirm("Se déconnecter ? Vos données restent sauvegardées, il faudra juste retaper le code de votre couple pour revenir.")) return;
     localStorage.removeItem("oamy:room");
     localStorage.removeItem("oamy:name");
     localStorage.removeItem("oamy:role");
@@ -262,6 +263,9 @@ function Pairing({ name, setName, join, error }) {
         <div className="seg">
           <button className={mode === "join" ? "on" : ""} onClick={() => setMode("join")}>Rejoindre un espace</button>
           <button className={mode === "create" ? "on" : ""} onClick={() => { setMode("create"); generateCode(); }}>Créer un nouvel espace</button>
+        </div>
+        <div style={{ fontSize: '0.78rem', color: '#a06', background: '#fff0f5', padding: '8px 10px', borderRadius: '8px', marginBottom: '4px' }}>
+          ⚠️ Si vous avez déjà un espace ensemble, choisissez toujours <b>"Rejoindre"</b> avec votre code existant — même si c'est vous qui l'aviez créé au départ. "Créer" fabrique un nouvel espace vide.
         </div>
 
         <label>
