@@ -568,7 +568,7 @@ function Story({ data, save, name }) {
             <div className="timeline-item" key={n.id}>
               <div className="dot"><Heart size={12} fill="currentColor" /></div>
               <div className="card">
-                <small>{new Date(n.date).toLocaleDateString("fr-FR")}</small>
+                <small><b>{n.author || "Anonyme"}</b> · {new Date(n.date).toLocaleDateString("fr-FR")}</small>
                 <p>{n.text}</p>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '8px' }}>
                   {REACTIONS.map(e => (
@@ -897,3 +897,4 @@ function More({ data, save, logout, room }) {
     </div>
   );
 }
+
