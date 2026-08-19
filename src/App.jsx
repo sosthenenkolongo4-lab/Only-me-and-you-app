@@ -153,7 +153,6 @@ export default function App() {
       if (rows?.[0]) {
         const existingData = mergeData(rows[0].payload);
 
-        // Mettre à jour le nom attribué selon le rôle choisi
         const updatedNames = { ...existingData.names };
         if (role === "you" && !updatedNames.you) updatedNames.you = name;
         if (role === "partner" && !updatedNames.partner) updatedNames.partner = name;
@@ -161,10 +160,14 @@ export default function App() {
         const updatedPayload = { ...existingData, names: updatedNames };
         setData(updatedPayload);
 
-        // Sauvegarder la mise à jour des noms
+        const savedMyName = role === "you" ? updatedNames.you : updatedNames.partner;
+        if (savedMyName && savedMyName !== name) {
+          setName(savedMyName);
+          localStorage.setItem("oamy:name", savedMyName);
+        }
+
         await supabase.from("couple_rooms").update({ payload: updatedPayload, updated_at: new Date().toISOString() }).eq("room_code", roomCode);
 
-        // Synchronisation en temps réel via Supabase realtime
         channel = supabase.channel("couple-" + roomCode)
           .on("postgres_changes", { event: "UPDATE", schema: "public", table: "couple_rooms", filter: `room_code=eq.${roomCode}` },
             p => {
@@ -174,7 +177,6 @@ export default function App() {
             })
           .subscribe();
       } else {
-        // Création du salon avec initialisation propre des rôles
         const fresh = {
           ...EMPTY,
           couple_id: roomCode,
@@ -221,7 +223,6 @@ export default function App() {
   function logout() {
     if (!window.confirm("Se déconnecter ? Vos données restent sauvegardées, il faudra juste retaper le code de votre couple pour revenir.")) return;
     localStorage.removeItem("oamy:room");
-    // On garde le prénom et le dernier code utilisé pour faciliter la reconnexion
     setRoom("");
     setData(EMPTY);
     setTab("home");
@@ -241,7 +242,7 @@ export default function App() {
         </div>
       </div>
       <main className="main">
-        {tab === "home" && <HomeScreen data={data} name={name} role={role} setTab={setTab} save={save} />}
+        {tab === "home" && <HomeScreen data={data} name={name} setName={setName} role={role} setTab={setTab} save={save} />}
         {tab === "chat" && <Chat data={data} name={name} save={save} />}
         {tab === "story" && <Story data={data} save={save} name={name} />}
         {tab === "agenda" && <Agenda data={data} save={save} />}
@@ -259,7 +260,6 @@ function Pairing({ name, setName, join, error }) {
   const [code, setCode] = useState(() => localStorage.getItem("oamy:lastRoom") || "");
   const [copied, setCopied] = useState(false);
 
-  // Génération automatique d'un code unique à 6 caractères
   const generateCode = () => {
     const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     let res = "";
@@ -391,7 +391,7 @@ function Nav({ tab, setTab }) {
 
 function Title({ title, sub }) { return <div className="title"><h2>{title}</h2><p>{sub}</p></div>; }
 
-function HomeScreen({ data, name, role, setTab, save }) {
+function HomeScreen({ data, name, setName, role, setTab, save }) {
   const [now, setNow] = useState(new Date());
   const [isEditingDate, setIsEditingDate] = useState(false);
   const [tempDate, setTempDate] = useState(data.startDate);
@@ -404,7 +404,6 @@ function HomeScreen({ data, name, role, setTab, save }) {
     return () => clearInterval(t);
   }, []);
 
-  // Calcul dynamique du compte à rebours (jours, heures, minutes, secondes)
   const start = new Date((data.startDate || new Date().toISOString().slice(0, 10)) + "T00:00:00");
   const diffMs = Math.max(0, now - start);
 
@@ -427,7 +426,21 @@ function HomeScreen({ data, name, role, setTab, save }) {
   };
 
   const handleSaveNames = () => {
-    save({ ...data, names: { you: tempYou.trim(), partner: tempPartner.trim() } });
+    const you = tempYou.trim();
+    const partner = tempPartner.trim();
+
+    const myNewName = role === "you" ? you : partner;
+
+    if (myNewName) {
+      setName(myNewName);
+      localStorage.setItem("oamy:name", myNewName);
+    }
+
+    save({
+      ...data,
+      names: { you, partner }
+    });
+
     setIsEditingNames(false);
   };
 
@@ -462,7 +475,6 @@ function HomeScreen({ data, name, role, setTab, save }) {
         <div className="big">{totalDays}</div>
         <div className="days">JOURS</div>
 
-        {/* COMPTE À REBOURS PRÉCIS (H:M:S) */}
         <div className="timer" style={{ fontSize: '1.2rem', fontWeight: 'bold', margin: '8px 0', letterSpacing: '1px' }}>
           {hours}h {minutes}m {seconds}s
         </div>
@@ -712,6 +724,38 @@ function Agenda({ data, save }) {
   const [editingLoc, setEditingLoc] = useState(false);
   const [locLabel, setLocLabel] = useState(data.location?.label || "");
   const [locAddress, setLocAddress] = useState(data.location?.address || "");
+  const [locLat, setLocLat] = useState(data.location?.latitude ?? null);
+  const [locLng, setLocLng] = useState(data.location?.longitude ?? null);
+  const [gps, setGps] = useState(null);
+  const [gpsLoading, setGpsLoading] = useState(false);
+  const [gpsError, setGpsError] = useState("");
+  const [navOpen, setNavOpen] = useState(false);
+  const [route, setRoute] = useState(null);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const mapRef = React.useRef(null);
+  const leafletMapRef = React.useRef(null);
+  const currentMarkerRef = React.useRef(null);
+  const destinationMarkerRef = React.useRef(null);
+  const routeLayerRef = React.useRef(null);
+  const watchIdRef = React.useRef(null);
+
+  useEffect(() => {
+    if (!editingLoc) {
+      setLocLabel(data.location?.label || "");
+      setLocAddress(data.location?.address || "");
+      setLocLat(data.location?.latitude ?? null);
+      setLocLng(data.location?.longitude ?? null);
+    }
+  }, [data.location, editingLoc]);
+
+  useEffect(() => {
+    return () => {
+      if (watchIdRef.current != null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+      }
+      if (leafletMapRef.current) leafletMapRef.current.remove();
+    };
+  }, []);
 
   const add = () => {
     if (!title || !date) return;
@@ -720,58 +764,305 @@ function Agenda({ data, save }) {
   };
 
   const saveLocation = () => {
-    if (!locLabel.trim() && !locAddress.trim()) return;
-    save({ ...data, location: { label: locLabel.trim(), address: locAddress.trim(), updatedAt: new Date().toISOString() } });
+    if (!locLabel.trim() && !locAddress.trim() && locLat == null) {
+      setGpsError("Ajoute un nom, une adresse ou utilise ta position GPS.");
+      return;
+    }
+    save({
+      ...data,
+      location: {
+        label: locLabel.trim() || "Notre destination",
+        address: locAddress.trim(),
+        latitude: locLat,
+        longitude: locLng,
+        updatedAt: new Date().toISOString()
+      }
+    });
+    setGpsError("");
     setEditingLoc(false);
   };
 
   const clearLocation = () => {
     save({ ...data, location: null });
-    setLocLabel(""); setLocAddress("");
+    setLocLabel(""); setLocAddress(""); setLocLat(null); setLocLng(null);
+    setGpsError(""); setRoute(null);
   };
 
-  const mapsUrl = data.location?.address
-    ? "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(data.location.address)
+  const reverseGeocode = async (latitude, longitude) => {
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(latitude)}&lon=${encodeURIComponent(longitude)}&zoom=18&addressdetails=1`,
+        { headers: { Accept: "application/json" } }
+      );
+      if (!response.ok) return;
+      const result = await response.json();
+      const address = result.display_name || "";
+      if (address) setLocAddress(address);
+      if (!locLabel.trim()) {
+        const a = result.address || {};
+        setLocLabel(
+          a.amenity || a.shop || a.restaurant || a.hotel || a.road ||
+          a.neighbourhood || a.suburb || a.city || "Ma position actuelle"
+        );
+      }
+    } catch (_) {}
+  };
+
+  const startGps = (openNavigation = false) => {
+    setGpsError("");
+    if (!("geolocation" in navigator)) {
+      setGpsError("La géolocalisation n'est pas disponible sur cet appareil.");
+      return;
+    }
+    setGpsLoading(true);
+
+    const onSuccess = position => {
+      const next = {
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        accuracy: position.coords.accuracy,
+        speed: position.coords.speed,
+        heading: position.coords.heading
+      };
+      setGps(next);
+      setGpsLoading(false);
+      if (openNavigation) setNavOpen(true);
+    };
+
+    const onError = err => {
+      const messages = {
+        1: "Autorisation GPS refusée. Autorise la localisation dans ton navigateur.",
+        2: "Position GPS indisponible. Vérifie la localisation de ton téléphone.",
+        3: "La récupération GPS a pris trop de temps. Réessaie."
+      };
+      setGpsError(messages[err.code] || "Impossible de récupérer ta position GPS.");
+      setGpsLoading(false);
+    };
+
+    navigator.geolocation.getCurrentPosition(onSuccess, onError, {
+      enableHighAccuracy: true, timeout: 15000, maximumAge: 0
+    });
+
+    if (watchIdRef.current == null) {
+      watchIdRef.current = navigator.geolocation.watchPosition(onSuccess, onError, {
+        enableHighAccuracy: true, timeout: 20000, maximumAge: 3000
+      });
+    }
+  };
+
+  const saveCurrentAsDestination = async () => {
+    if (!gps) {
+      startGps();
+      return;
+    }
+    setLocLat(gps.latitude);
+    setLocLng(gps.longitude);
+    await reverseGeocode(gps.latitude, gps.longitude);
+    setLocLabel(prev => prev.trim() || "Ma position actuelle");
+  };
+
+  const loadLeaflet = () => new Promise((resolve, reject) => {
+    if (window.L) return resolve(window.L);
+    const cssId = "oamy-leaflet-css";
+    if (!document.getElementById(cssId)) {
+      const link = document.createElement("link");
+      link.id = cssId;
+      link.rel = "stylesheet";
+      link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+      document.head.appendChild(link);
+    }
+    const existing = document.getElementById("oamy-leaflet-js");
+    if (existing) {
+      existing.addEventListener("load", () => resolve(window.L));
+      existing.addEventListener("error", reject);
+      return;
+    }
+    const script = document.createElement("script");
+    script.id = "oamy-leaflet-js";
+    script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+    script.async = true;
+    script.onload = () => resolve(window.L);
+    script.onerror = reject;
+    document.body.appendChild(script);
+  });
+
+  const haversineKm = (a, b) => {
+    if (!a || !b) return null;
+    const R = 6371;
+    const dLat = (b.latitude - a.latitude) * Math.PI / 180;
+    const dLon = (b.longitude - a.longitude) * Math.PI / 180;
+    const lat1 = a.latitude * Math.PI / 180;
+    const lat2 = b.latitude * Math.PI / 180;
+    const x = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+  };
+
+  const fetchRoute = async (from, to) => {
+    if (!from || !to) return;
+    setRouteLoading(true);
+    try {
+      const url = `https://router.project-osrm.org/route/v1/driving/${from.longitude},${from.latitude};${to.longitude},${to.latitude}?overview=full&geometries=geojson&steps=true`;
+      const response = await fetch(url);
+      if (!response.ok) throw new Error("route");
+      const json = await response.json();
+      const r = json.routes?.[0];
+      if (!r) throw new Error("route");
+      setRoute({
+        distance: r.distance / 1000,
+        duration: r.duration / 60,
+        geometry: r.geometry,
+        steps: r.legs?.[0]?.steps || []
+      });
+    } catch (_) {
+      const distance = haversineKm(from, to);
+      setRoute(distance == null ? null : {
+        distance,
+        duration: distance ? distance / 30 * 60 : 0,
+        geometry: null,
+        steps: []
+      });
+    } finally {
+      setRouteLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!navOpen || !mapRef.current) return;
+    let cancelled = false;
+    loadLeaflet().then(L => {
+      if (cancelled || !mapRef.current) return;
+      if (!leafletMapRef.current) {
+        leafletMapRef.current = L.map(mapRef.current, { zoomControl: false, attributionControl: true });
+        L.control.zoom({ position: "bottomright" }).addTo(leafletMapRef.current);
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          maxZoom: 19,
+          attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(leafletMapRef.current);
+      }
+
+      const current = gps;
+      const destination = data.location?.latitude != null && data.location?.longitude != null
+        ? { latitude: Number(data.location.latitude), longitude: Number(data.location.longitude) }
+        : null;
+
+      const center = current || destination || { latitude: -4.325, longitude: 15.322 };
+      leafletMapRef.current.setView([center.latitude, center.longitude], current || destination ? 15 : 12);
+
+      if (current) {
+        const icon = L.divIcon({
+          className: "oamy-gps-marker",
+          html: '<div class="oamy-gps-pulse"><div class="oamy-gps-arrow">➤</div></div>',
+          iconSize: [48, 48], iconAnchor: [24, 24]
+        });
+        if (!currentMarkerRef.current) currentMarkerRef.current = L.marker([current.latitude, current.longitude], { icon }).addTo(leafletMapRef.current);
+        else currentMarkerRef.current.setLatLng([current.latitude, current.longitude]);
+      }
+
+      if (destination) {
+        const destIcon = L.divIcon({
+          className: "oamy-destination-marker",
+          html: '<div class="oamy-destination-pin">♥</div>',
+          iconSize: [36, 36], iconAnchor: [18, 34]
+        });
+        if (!destinationMarkerRef.current) destinationMarkerRef.current = L.marker([destination.latitude, destination.longitude], { icon: destIcon }).addTo(leafletMapRef.current);
+        else destinationMarkerRef.current.setLatLng([destination.latitude, destination.longitude]);
+      }
+
+      if (routeLayerRef.current) {
+        routeLayerRef.current.remove();
+        routeLayerRef.current = null;
+      }
+      if (route?.geometry) {
+        const coords = route.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+        routeLayerRef.current = L.polyline(coords, {
+          color: "#C9184A", weight: 7, opacity: 0.9, lineCap: "round", lineJoin: "round"
+        }).addTo(leafletMapRef.current);
+        leafletMapRef.current.fitBounds(routeLayerRef.current.getBounds(), { padding: [45, 45] });
+      }
+      setTimeout(() => leafletMapRef.current?.invalidateSize(), 100);
+    }).catch(() => setGpsError("Impossible de charger la carte. Vérifie ta connexion Internet."));
+    return () => { cancelled = true; };
+  }, [navOpen, gps, data.location, route]);
+
+  useEffect(() => {
+    if (navOpen && gps && data.location?.latitude != null && data.location?.longitude != null) {
+      fetchRoute(gps, {
+        latitude: Number(data.location.latitude), longitude: Number(data.location.longitude)
+      });
+    }
+  }, [navOpen, gps, data.location?.latitude, data.location?.longitude]);
+
+  const destination = data.location?.latitude != null && data.location?.longitude != null
+    ? { latitude: Number(data.location.latitude), longitude: Number(data.location.longitude) }
     : null;
+  const straightDistance = haversineKm(gps, destination);
+  const distanceKm = route?.distance ?? straightDistance;
+  const speedKmh = gps?.speed != null && gps.speed >= 0 ? gps.speed * 3.6 : null;
+  const etaMinutes = route?.duration ?? (distanceKm != null ? (distanceKm / 30) * 60 : null);
+  const firstStep = route?.steps?.find(s => s.maneuver?.type !== "arrive");
+  const nextInstruction = firstStep ? (
+    firstStep.maneuver?.type === "turn" || firstStep.maneuver?.type === "end of road"
+      ? `${firstStep.maneuver.modifier === "left" ? "Tournez à gauche" : firstStep.maneuver.modifier === "right" ? "Tournez à droite" : "Continuez"}`
+      : firstStep.maneuver?.type === "roundabout" ? "Prenez le rond-point" : "Continuez"
+  ) : "En route vers notre destination";
+  const nextStepDistance = firstStep ? firstStep.distance : null;
+
+  const openMaps = () => {
+    if (!destination) return;
+    const url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${destination.latitude},${destination.longitude}`)}&travelmode=driving`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
+  const gpsStyles = `
+    .oamy-nav-shell{position:relative;border-radius:22px;overflow:hidden;background:#160b10;box-shadow:0 18px 50px rgba(43,15,26,.25);border:1px solid rgba(227,168,87,.22)}
+    .oamy-map{height:430px;background:#171116;filter:saturate(.72) contrast(1.03)}
+    .oamy-map:after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(180deg,rgba(22,11,16,.18),rgba(22,11,16,.03) 55%,rgba(22,11,16,.62))}
+    .oamy-nav-top{position:absolute;z-index:500;top:12px;left:12px;right:12px;display:flex;gap:8px;align-items:center}
+    .oamy-pill{background:rgba(22,11,16,.88);backdrop-filter:blur(12px);color:#FBF3EC;border:1px solid rgba(255,255,255,.1);border-radius:14px;padding:8px 11px;font-size:.76rem;box-shadow:0 8px 25px rgba(0,0,0,.2)}
+    .oamy-instruction{position:absolute;z-index:500;top:58px;left:12px;right:12px;background:rgba(22,11,16,.94);backdrop-filter:blur(14px);color:#fff;border-radius:16px;padding:12px 14px;display:flex;align-items:center;gap:12px;border:1px solid rgba(227,168,87,.22)}
+    .oamy-turn{width:42px;height:42px;border-radius:12px;background:#C9184A;display:flex;align-items:center;justify-content:center;font-size:22px;flex:none}
+    .oamy-bottom{position:absolute;z-index:500;left:12px;right:12px;bottom:12px;background:rgba(22,11,16,.95);backdrop-filter:blur(16px);border-radius:18px;padding:13px;border:1px solid rgba(255,255,255,.1);color:#fff}
+    .oamy-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:11px}.oamy-stat{padding:6px 4px;text-align:center}.oamy-stat b{display:block;font-size:1.05rem}.oamy-stat span{display:block;color:#DDBBC5;font-size:.68rem;margin-top:2px}
+    .oamy-actions{display:flex;gap:8px}.oamy-actions button{flex:1;border:0;border-radius:12px;padding:10px;font-weight:700;cursor:pointer}.oamy-start{background:linear-gradient(135deg,#E3A857,#C9184A);color:#fff}.oamy-secondary{background:rgba(255,255,255,.1);color:#fff}
+    .oamy-gps-pulse{width:48px;height:48px;border-radius:50%;background:rgba(201,24,74,.18);border:2px solid #C9184A;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 8px rgba(201,24,74,.08)}.oamy-gps-arrow{width:30px;height:30px;border-radius:50%;background:#C9184A;color:#fff;display:flex;align-items:center;justify-content:center;font-size:17px;transform:rotate(-45deg);box-shadow:0 5px 16px rgba(201,24,74,.5)}
+    .oamy-destination-pin{width:34px;height:34px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:#E3A857;color:#2B0F1A;display:flex;align-items:center;justify-content:center;font-size:16px;border:3px solid #FBF3EC;box-shadow:0 5px 18px rgba(0,0,0,.35)}.oamy-destination-pin::first-letter{transform:rotate(45deg)}
+    @media(max-width:520px){.oamy-map{height:410px}.oamy-stats{gap:2px}.oamy-stat b{font-size:.95rem}}
+  `;
 
   return (
     <div>
+      <style>{gpsStyles}</style>
       <Title title="Notre agenda" sub="Les dates qui comptent pour nous." />
 
-      {!editingLoc && data.location ? (
-        <div style={{
-          position: 'relative', borderRadius: '18px', padding: '18px',
-          background: 'linear-gradient(135deg, #6E2338 0%, #4A1626 55%, #2B0F1A 100%)',
-          color: '#FBF3EC', marginBottom: '14px', overflow: 'hidden'
-        }}>
-          <div style={{ position: 'absolute', top: -30, right: -30, width: 120, height: 120, borderRadius: '50%', background: 'radial-gradient(circle, rgba(227,168,87,0.35), rgba(227,168,87,0))' }} />
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: '#E9B9C4' }}>
-            <Navigation size={14} /> Notre prochaine destination
-          </div>
-          <div style={{ fontSize: '1.25rem', fontWeight: 700, marginTop: '8px', color: '#F3D9B1' }}>
-            {data.location.label || "Destination"}
-          </div>
-          {data.location.address && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', marginTop: '4px', color: '#E9B9C4' }}>
-              <MapPin size={13} /> {data.location.address}
-            </div>
-          )}
-          <div style={{ display: 'flex', gap: '8px', marginTop: '14px' }}>
-            {mapsUrl && (
-              <a href={mapsUrl} target="_blank" rel="noreferrer" style={{
-                flex: 1, textAlign: 'center', padding: '9px', borderRadius: '10px',
-                background: 'linear-gradient(135deg, #E3A857, #C9184A)', color: '#fff',
-                fontWeight: 700, fontSize: '0.85rem', textDecoration: 'none'
-              }}>
-                Ouvrir dans Maps
-              </a>
-            )}
-            <button
-              onClick={() => { setLocLabel(data.location.label); setLocAddress(data.location.address); setEditingLoc(true); }}
-              style={{ padding: '9px 12px', borderRadius: '10px', background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', fontSize: '0.85rem' }}
-            >
-              Modifier
+      {data.location && !editingLoc ? (
+        <div className="oamy-nav-shell" style={{marginBottom:14}}>
+          <div ref={mapRef} className="oamy-map" />
+          <div className="oamy-nav-top">
+            <div className="oamy-pill"><Navigation size={13} style={{verticalAlign:'middle',marginRight:5}}/> GPS • Only Me & You</div>
+            <button onClick={() => startGps(false)} className="oamy-pill" style={{marginLeft:'auto',cursor:'pointer',color:'#F3D9B1'}}>
+              {gpsLoading ? "Localisation…" : "Actualiser"}
             </button>
+          </div>
+          <div className="oamy-instruction">
+            <div className="oamy-turn">↖</div>
+            <div style={{minWidth:0}}>
+              <b style={{display:'block',fontSize:'1rem'}}>{routeLoading ? "Calcul de l'itinéraire…" : nextInstruction}</b>
+              <span style={{display:'block',fontSize:'.72rem',color:'#DDBBC5',marginTop:3}}>
+                {nextStepDistance != null ? `${Math.round(nextStepDistance)} m` : data.location.label || "Notre destination"}
+              </span>
+            </div>
+          </div>
+          <div className="oamy-bottom">
+            <div className="oamy-stats">
+              <div className="oamy-stat"><b>{distanceKm != null ? `${distanceKm.toFixed(1)} km` : "—"}</b><span>distance</span></div>
+              <div className="oamy-stat"><b>{etaMinutes != null ? `${Math.max(1, Math.round(etaMinutes))} min` : "—"}</b><span>arrivée estimée</span></div>
+              <div className="oamy-stat"><b>{speedKmh != null ? `${Math.round(speedKmh)} km/h` : "GPS actif"}</b><span>vitesse</span></div>
+            </div>
+            <div className="oamy-actions">
+              <button className="oamy-secondary" onClick={() => setEditingLoc(true)}>Modifier</button>
+              <button className="oamy-start" onClick={() => { startGps(true); }}>DÉMARRER</button>
+              <button className="oamy-secondary" onClick={openMaps}>Maps</button>
+            </div>
           </div>
         </div>
       ) : (
@@ -779,10 +1070,16 @@ function Agenda({ data, save }) {
           <h3>📍 Notre prochaine destination</h3>
           <input value={locLabel} onChange={e => setLocLabel(e.target.value)} placeholder="Ex. Restaurant, chez Maman…" />
           <input value={locAddress} onChange={e => setLocAddress(e.target.value)} placeholder="Adresse ou lieu" />
-          <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-            <button className="primary" onClick={saveLocation}><Check size={15} /> Enregistrer</button>
+          <button type="button" onClick={() => startGps(false)} disabled={gpsLoading} style={{width:'100%',marginTop:8,padding:11,borderRadius:10,border:'1px solid #e7b8c5',background:'#fff5f8',color:'#8b2440',cursor:gpsLoading?'wait':'pointer',fontWeight:700}}>
+            <Navigation size={16} style={{verticalAlign:'middle',marginRight:6}} /> {gpsLoading ? "Localisation en cours…" : "Utiliser ma position GPS"}
+          </button>
+          {gps && <button type="button" onClick={saveCurrentAsDestination} className="secondary" style={{width:'100%',marginTop:8}}><MapPin size={15}/> Utiliser cette position comme destination</button>}
+          {gps && <div style={{marginTop:8,padding:8,borderRadius:8,background:'#f5faf7',color:'#24734a',fontSize:'.78rem'}}>✓ GPS : {gps.latitude.toFixed(6)}, {gps.longitude.toFixed(6)}{gps.accuracy ? ` • précision ±${Math.round(gps.accuracy)} m` : ''}</div>}
+          {gpsError && <div style={{marginTop:8,padding:8,borderRadius:8,background:'#fff0f0',color:'#c53030',fontSize:'.78rem'}}>{gpsError}</div>}
+          <div style={{display:'flex',gap:8,marginTop:8}}>
+            <button className="primary" onClick={saveLocation}><Check size={15}/> Enregistrer</button>
             {data.location && <button className="secondary" onClick={() => setEditingLoc(false)}>Annuler</button>}
-            {data.location && <button className="secondary" onClick={clearLocation}><Trash2 size={14} /></button>}
+            {data.location && <button className="secondary" onClick={clearLocation}><Trash2 size={14}/></button>}
           </div>
         </div>
       )}
@@ -790,14 +1087,13 @@ function Agenda({ data, save }) {
       <div className="card">
         <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Ex. Dîner, anniversaire…" />
         <input type="date" value={date} onChange={e => setDate(e.target.value)} />
-        <button className="primary" onClick={add}><Plus size={15} /> Ajouter</button>
+        <button className="primary" onClick={add}><Plus size={15}/> Ajouter</button>
       </div>
       <div className="list">
-        {data.events.sort((a, b) => a.date.localeCompare(b.date)).map(e => (
+        {data.events.slice().sort((a,b) => a.date.localeCompare(b.date)).map(e => (
           <div className="row card" key={e.id}>
-            <Calendar size={18} />
-            <div><b>{e.title}</b><small>{fmtDate(e.date)}</small></div>
-            <button className="icon" onClick={() => save({ ...data, events: data.events.filter(x => x.id !== e.id) })}><Trash2 size={15} /></button>
+            <Calendar size={18}/><div><b>{e.title}</b><small>{fmtDate(e.date)}</small></div>
+            <button className="icon" onClick={() => save({...data,events:data.events.filter(x => x.id !== e.id)})}><Trash2 size={15}/></button>
           </div>
         ))}
       </div>
@@ -1029,7 +1325,6 @@ function More({ data, save, logout, room }) {
         <div><BellRing size={16} /> Rappels</div>
         <div><Users size={16} /> Code de votre couple : <b style={{ letterSpacing: '1px' }}>{room}</b></div>
 
-        {/* BOUTON DÉCONNEXION OFFICIEL */}
         <button
           onClick={logout}
           style={{
