@@ -18,6 +18,7 @@ const EMPTY = {
   startDate: new Date().toISOString().slice(0, 10),
   messages: [],
   memories: [],
+  gameAnswers: [],
   events: [],
   notes: [],
   goals: [],
@@ -60,6 +61,8 @@ const wouldYouRather = [
   ["Cuisiner ensemble chaque soir", "Découvrir un nouveau resto chaque semaine"]
 ];
 
+const REACTIONS = ["❤️", "😂", "😮", "😢", "👍", "🙏"];
+
 const uid = () => crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
 const fmtDate = d => new Date(d + "T00:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
 
@@ -71,6 +74,7 @@ function mergeData(raw) {
     settings: { ...EMPTY.settings, ...(raw?.settings || {}) },
     messages: raw?.messages || [],
     memories: raw?.memories || [],
+    gameAnswers: raw?.gameAnswers || [],
     events: raw?.events || [],
     notes: raw?.notes || [],
     goals: raw?.goals || [],
@@ -200,10 +204,10 @@ export default function App() {
       <main className="main">
         {tab === "home" && <HomeScreen data={data} name={name} role={role} setTab={setTab} save={save} />}
         {tab === "chat" && <Chat data={data} name={name} save={save} />}
-        {tab === "story" && <Story data={data} save={save} />}
+        {tab === "story" && <Story data={data} save={save} name={name} />}
         {tab === "agenda" && <Agenda data={data} save={save} />}
         {tab === "money" && <Money data={data} save={save} />}
-        {tab === "games" && <Games data={data} save={save} />}
+        {tab === "games" && <Games data={data} save={save} name={name} />}
         {tab === "more" && <More data={data} save={save} logout={logout} room={room} />}
       </main>
       <Nav tab={tab} setTab={setTab} />
@@ -469,11 +473,11 @@ function Chat({ data, name, save }) {
   );
 }
 
-function Story({ data, save }) {
+function Story({ data, save, name }) {
   const [note, setNote] = useState(""), [goal, setGoal] = useState("");
   const addNote = () => {
     if (!note.trim()) return;
-    save({ ...data, notes: [{ id: uid(), text: note, date: new Date().toISOString() }, ...data.notes] });
+    save({ ...data, notes: [{ id: uid(), text: note, date: new Date().toISOString(), author: name, reactions: [] }, ...data.notes] });
     setNote("");
   };
   const addGoal = () => {
@@ -483,19 +487,114 @@ function Story({ data, save }) {
   };
   const toggle = id => save({ ...data, goals: data.goals.map(g => g.id === id ? { ...g, done: !g.done } : g) });
 
+  const toggleReaction = (noteId, emoji) => {
+    save({
+      ...data,
+      notes: data.notes.map(n => {
+        if (n.id !== noteId) return n;
+        const reactions = n.reactions || [];
+        const mine = reactions.find(r => r.author === name);
+        let next;
+        if (mine && mine.emoji === emoji) next = reactions.filter(r => r.author !== name);
+        else if (mine) next = reactions.map(r => r.author === name ? { ...r, emoji } : r);
+        else next = [...reactions, { emoji, author: name }];
+        return { ...n, reactions: next };
+      })
+    });
+  };
+
+  const [uploading, setUploading] = useState(false);
+  const onPhoto = (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setUploading(true);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const maxW = 900;
+        const scale = Math.min(1, maxW / img.width);
+        const canvas = document.createElement("canvas");
+        canvas.width = img.width * scale;
+        canvas.height = img.height * scale;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const compressed = canvas.toDataURL("image/jpeg", 0.7);
+        save({ ...data, memories: [{ id: uid(), url: compressed, date: new Date().toISOString(), author: name }, ...data.memories] });
+        setUploading(false);
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+  const removePhoto = id => save({ ...data, memories: data.memories.filter(m => m.id !== id) });
+
   return (
     <div>
       <Title title="Notre histoire" sub="Les petits chapitres qui deviennent de grands souvenirs." />
-      <div className="timeline">
-        {data.notes.map(n => (
-          <div className="timeline-item" key={n.id}>
-            <div className="dot"><Heart size={12} fill="currentColor" /></div>
-            <div className="card">
-              <small>{new Date(n.date).toLocaleDateString("fr-FR")}</small>
-              <p>{n.text}</p>
-            </div>
+
+      <div className="card">
+        <h3>📷 Nos souvenirs en photo</h3>
+        <label className="primary" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', cursor: 'pointer', opacity: uploading ? 0.6 : 1 }}>
+          <Camera size={16} /> {uploading ? "Envoi en cours…" : "Ajouter une photo"}
+          <input type="file" accept="image/*" onChange={onPhoto} disabled={uploading} style={{ display: 'none' }} />
+        </label>
+        {data.memories.length > 0 && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px', marginTop: '12px' }}>
+            {data.memories.map(m => (
+              <div key={m.id} style={{ position: 'relative' }}>
+                <img src={m.url} alt="" style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: '8px' }} />
+                <button
+                  onClick={() => removePhoto(m.id)}
+                  style={{ position: 'absolute', top: 4, right: 4, background: 'rgba(0,0,0,0.55)', border: 'none', borderRadius: '50%', width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}
+                >
+                  <X size={12} color="#fff" />
+                </button>
+              </div>
+            ))}
           </div>
-        ))}
+        )}
+        {!data.memories.length && <div className="empty" style={{ marginTop: '10px' }}>Aucune photo pour l'instant.</div>}
+      </div>
+
+      <div className="timeline">
+        {data.notes.map(n => {
+          const reactions = n.reactions || [];
+          const mine = reactions.find(r => r.author === name);
+          const counts = {};
+          reactions.forEach(r => { counts[r.emoji] = (counts[r.emoji] || 0) + 1; });
+          return (
+            <div className="timeline-item" key={n.id}>
+              <div className="dot"><Heart size={12} fill="currentColor" /></div>
+              <div className="card">
+                <small>{new Date(n.date).toLocaleDateString("fr-FR")}</small>
+                <p>{n.text}</p>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '8px' }}>
+                  {REACTIONS.map(e => (
+                    <button
+                      key={e}
+                      onClick={() => toggleReaction(n.id, e)}
+                      style={{
+                        border: mine && mine.emoji === e ? '1.5px solid #ec4899' : '1px solid #eee',
+                        background: mine && mine.emoji === e ? '#fdf2f8' : '#fff',
+                        borderRadius: '100px',
+                        padding: '2px 8px',
+                        fontSize: '0.85rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '3px'
+                      }}
+                    >
+                      <span>{e}</span>
+                      {counts[e] > 0 && <span style={{ fontSize: '0.7rem', color: '#888' }}>{counts[e]}</span>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          );
+        })}
         {!data.notes.length && <div className="empty card">Votre histoire commence ici. Ajoutez votre premier souvenir.</div>}
       </div>
       <div className="card">
@@ -635,12 +734,13 @@ function Money({ data, save }) {
   );
 }
 
-function Games({ data, save }) {
+function Games({ data, save, name }) {
   const [mode, setMode] = useState("menu");
   const [q, setQ] = useState(questions[0]);
   const [card, setCard] = useState(truthOrDare[0]);
   const [wyr, setWyr] = useState(wouldYouRather[0]);
   const [answer, setAnswer] = useState("");
+  const [commentDrafts, setCommentDrafts] = useState({});
 
   const nextQuestion = () => setQ(questions[Math.floor(Math.random() * questions.length)]);
   const nextCard = () => setCard(truthOrDare[Math.floor(Math.random() * truthOrDare.length)]);
@@ -648,8 +748,21 @@ function Games({ data, save }) {
 
   const saveAnswer = (prompt, text) => {
     if (!text || !text.trim()) return;
-    save({ ...data, notes: [{ id: uid(), text: "🎮 " + prompt + " — " + text, date: new Date().toISOString() }, ...data.notes] });
+    save({ ...data, gameAnswers: [{ id: uid(), prompt, answer: text, date: new Date().toISOString(), author: name, comments: [] }, ...data.gameAnswers] });
     setAnswer("");
+    setMode("menu");
+  };
+
+  const addComment = (postId) => {
+    const text = (commentDrafts[postId] || "").trim();
+    if (!text) return;
+    save({
+      ...data,
+      gameAnswers: data.gameAnswers.map(p => p.id === postId
+        ? { ...p, comments: [...(p.comments || []), { id: uid(), author: name, text }] }
+        : p)
+    });
+    setCommentDrafts({ ...commentDrafts, [postId]: "" });
   };
 
   return (
@@ -693,6 +806,36 @@ function Games({ data, save }) {
           <button className="primary" onClick={() => saveAnswer(wyr[0] + " ou " + wyr[1], answer)}><Check size={15} /> Garder notre choix</button>
           <button className="secondary" onClick={nextWyr}><RefreshCw size={15} /> Nouveau dilemme</button>
           <button className="secondary" onClick={() => setMode("menu")}>← Retour</button>
+        </div>
+      )}
+
+      {mode === "menu" && data.gameAnswers.length > 0 && (
+        <div style={{ marginTop: '18px' }}>
+          <h3 style={{ fontSize: '0.95rem', margin: '0 0 10px 4px' }}>Notre fil de réponses</h3>
+          {data.gameAnswers.map(p => (
+            <div className="card" key={p.id} style={{ marginBottom: '10px' }}>
+              <small style={{ opacity: 0.6 }}>{p.author || "Anonyme"} a répondu</small>
+              <p style={{ fontWeight: 600, margin: '2px 0 4px' }}>{p.prompt}</p>
+              <p style={{ margin: 0 }}>{p.answer}</p>
+              <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: '1px solid rgba(0,0,0,0.08)' }}>
+                {(p.comments || []).map(c => (
+                  <div key={c.id} style={{ fontSize: '0.82rem', marginBottom: '6px' }}>
+                    <b>{c.author || "Anonyme"}</b> {c.text}
+                  </div>
+                ))}
+                <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
+                  <input
+                    value={commentDrafts[p.id] || ""}
+                    onChange={e => setCommentDrafts({ ...commentDrafts, [p.id]: e.target.value })}
+                    onKeyDown={e => e.key === "Enter" && addComment(p.id)}
+                    placeholder="Ajouter un commentaire…"
+                    style={{ flex: 1, fontSize: '0.8rem', padding: '7px 10px' }}
+                  />
+                  <button onClick={() => addComment(p.id)} style={{ padding: '0 12px' }}><Send size={14} /></button>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -753,4 +896,4 @@ function More({ data, save, logout, room }) {
       </div>
     </div>
   );
-        }
+}
