@@ -1054,4 +1054,3 @@ function More({ data, save, logout, room }) {
     </div>
   );
 }
-
