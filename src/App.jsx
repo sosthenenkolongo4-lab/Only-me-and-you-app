@@ -27,8 +27,33 @@ const EMPTY = {
   transactions: [],
   score: { you: 0, partner: 0 },
   savedVerses: [],
-  settings: { reminders: true, sound: false }
+  settings: { reminders: true, sound: false },
+  wishlist: [],
+  secrets: [],
+  capsules: [],
+  moods: {},
+  outingsDone: [],
+  challengesDone: []
 };
+
+const dateIdeasCategories = {
+  "Cocooning": ["Soirée pyjama et film", "Cuisiner un dessert ensemble", "Jeux de société sans téléphone", "Bain chaud avec bougies"],
+  "Culture": ["Visiter un musée", "Aller à une expo", "Lire un livre à deux voix", "Concert ou spectacle"],
+  "Extérieur": ["Pique-nique", "Randonnée", "Balade à vélo", "Regarder le coucher du soleil"],
+  "Gourmand": ["Nouveau restaurant", "Atelier cuisine", "Dégustation", "Brunch du dimanche"]
+};
+
+const challengesList = [
+  "Préparer le petit-déjeuner au lit",
+  "Envoyer un selfie rigolo",
+  "Écrire 3 choses que j'aime chez toi",
+  "Proposer une sortie surprise",
+  "Cuisiner le plat préféré de l'autre",
+  "Offrir un compliment sincère aujourd'hui",
+  "Planifier une soirée sans téléphone"
+];
+
+const moodOptions = ["😍", "😊", "😌", "😴", "😢", "😤", "🥳", "😐"];
 
 const verses = [
   ["1 Corinthiens 13:4-7", "L'amour est patient, il est plein de bonté ; l'amour ne cherche point son intérêt, ne s'irrite point et supporte tout."],
@@ -82,7 +107,13 @@ function mergeData(raw) {
     notes: raw?.notes || [],
     goals: raw?.goals || [],
     transactions: raw?.transactions || [],
-    savedVerses: raw?.savedVerses || []
+    savedVerses: raw?.savedVerses || [],
+    wishlist: raw?.wishlist || [],
+    secrets: raw?.secrets || [],
+    capsules: raw?.capsules || [],
+    moods: raw?.moods || {},
+    outingsDone: raw?.outingsDone || [],
+    challengesDone: raw?.challengesDone || []
   };
 }
 
@@ -153,10 +184,29 @@ export default function App() {
       if (rows?.[0]) {
         const existingData = mergeData(rows[0].payload);
 
-        // Mettre à jour le nom attribué selon le rôle choisi
+        // Reconnaître automatiquement qui tu es en comparant ton prénom
+        // à ceux déjà enregistrés — plutôt que de se fier uniquement au
+        // bouton "Créer"/"Rejoindre" (qui ne dit rien sur ton identité réelle).
+        const typed = name.trim().toLowerCase();
+        const existingYou = (existingData.names.you || "").trim().toLowerCase();
+        const existingPartner = (existingData.names.partner || "").trim().toLowerCase();
+
+        let resolvedRole = role;
+        if (typed && existingYou && typed === existingYou) resolvedRole = "you";
+        else if (typed && existingPartner && typed === existingPartner) resolvedRole = "partner";
+        else if (!existingData.names.you) resolvedRole = "you";
+        else if (!existingData.names.partner) resolvedRole = "partner";
+        // sinon : les deux places sont déjà prises par quelqu'un d'autre —
+        // on ne touche à aucun des deux prénoms pour éviter d'écraser une donnée.
+
+        if (resolvedRole !== role) {
+          setRole(resolvedRole);
+          localStorage.setItem("oamy:role", resolvedRole);
+        }
+
         const updatedNames = { ...existingData.names };
-        if (role === "you" && !updatedNames.you) updatedNames.you = name;
-        if (role === "partner" && !updatedNames.partner) updatedNames.partner = name;
+        if (resolvedRole === "you" && !updatedNames.you) updatedNames.you = name;
+        if (resolvedRole === "partner" && !updatedNames.partner) updatedNames.partner = name;
 
         const updatedPayload = { ...existingData, names: updatedNames };
         setData(updatedPayload);
@@ -247,7 +297,7 @@ export default function App() {
         {tab === "agenda" && <Agenda data={data} save={save} />}
         {tab === "money" && <Money data={data} save={save} />}
         {tab === "games" && <Games data={data} save={save} name={name} />}
-        {tab === "more" && <More data={data} save={save} logout={logout} room={room} />}
+        {tab === "more" && <More data={data} save={save} logout={logout} room={room} name={name} />}
       </main>
       <Nav tab={tab} setTab={setTab} />
     </Shell>
@@ -421,6 +471,14 @@ function HomeScreen({ data, name, role, setTab, save }) {
 
   const verse = verses[totalDays % verses.length];
 
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const otherRole = role === "you" ? "partner" : "you";
+  const myMood = data.moods?.[role]?.date === todayStr ? data.moods[role].emoji : null;
+  const otherMood = data.moods?.[otherRole]?.date === todayStr ? data.moods[otherRole].emoji : null;
+  const setMood = (emoji) => {
+    save({ ...data, moods: { ...data.moods, [role]: { emoji, date: todayStr } } });
+  };
+
   const handleSaveDate = () => {
     save({ ...data, startDate: tempDate });
     setIsEditingDate(false);
@@ -493,6 +551,26 @@ function HomeScreen({ data, name, role, setTab, save }) {
         <button onClick={() => setTab("chat")}>Répondre à deux <ArrowRight size={14} /></button>
       </div>
 
+      <div className="card">
+        <h3 style={{ margin: '0 0 8px' }}>😊 Humeur du jour</h3>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' }}>
+          {moodOptions.map(e => (
+            <button
+              key={e}
+              onClick={() => setMood(e)}
+              style={{
+                fontSize: '1.3rem', padding: '4px 8px', borderRadius: '10px',
+                border: myMood === e ? '2px solid #C9184A' : '1px solid #eee',
+                background: myMood === e ? '#fdf2f8' : '#fff'
+              }}
+            >{e}</button>
+          ))}
+        </div>
+        <div style={{ fontSize: '0.85rem', color: '#8A5568' }}>
+          {partnerName} : {otherMood ? <span style={{ fontSize: '1.1rem' }}>{otherMood}</span> : "pas encore répondu aujourd'hui"}
+        </div>
+      </div>
+
       <div className="grid4">
         <Quick icon={MessageCircleHeart} text="Écrire" onClick={() => setTab("chat")} />
         <Quick icon={Camera} text="Souvenir" onClick={() => setTab("story")} />
@@ -543,11 +621,20 @@ function Chat({ data, name, save }) {
 function Story({ data, save, name }) {
   const [note, setNote] = useState(""), [goal, setGoal] = useState("");
   const [viewPhoto, setViewPhoto] = useState(null);
+  const [secretText, setSecretText] = useState("");
+  const [revealedIds, setRevealedIds] = useState([]);
   const addNote = () => {
     if (!note.trim()) return;
     save({ ...data, notes: [{ id: uid(), text: note, date: new Date().toISOString(), author: name, reactions: [] }, ...data.notes] });
     setNote("");
   };
+  const addSecret = () => {
+    if (!secretText.trim()) return;
+    save({ ...data, secrets: [{ id: uid(), text: secretText.trim(), date: new Date().toISOString(), author: name }, ...data.secrets] });
+    setSecretText("");
+  };
+  const reveal = (id) => setRevealedIds([...revealedIds, id]);
+  const removeSecret = (id) => save({ ...data, secrets: data.secrets.filter(s => s.id !== id) });
   const addGoal = () => {
     if (!goal.trim()) return;
     save({ ...data, goals: [...data.goals, { id: uid(), text: goal, done: false }] });
@@ -685,6 +772,44 @@ function Story({ data, save, name }) {
         })}
         {!data.notes.length && <div className="empty card">Votre histoire commence ici. Ajoutez votre premier souvenir.</div>}
       </div>
+
+      <div className="card">
+        <h3>🔒 Boîte à secrets</h3>
+        <p style={{ fontSize: '0.8rem', color: '#8A5568', margin: '0 0 10px' }}>Une note cachée à découvrir en tapant dessus.</p>
+        {data.secrets.map(s => {
+          const isRevealed = revealedIds.includes(s.id);
+          return (
+            <div
+              key={s.id}
+              onClick={() => !isRevealed && reveal(s.id)}
+              style={{
+                padding: '12px', borderRadius: '10px', marginBottom: '8px',
+                background: isRevealed ? '#fdf2f8' : 'linear-gradient(135deg, #6E2338, #2B0F1A)',
+                color: isRevealed ? '#4A1B2A' : '#FBF3EC',
+                cursor: isRevealed ? 'default' : 'pointer',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px'
+              }}
+            >
+              {isRevealed ? (
+                <div>
+                  <small style={{ opacity: 0.6 }}>{s.author || "Anonyme"}</small>
+                  <p style={{ margin: '2px 0 0' }}>{s.text}</p>
+                </div>
+              ) : (
+                <span style={{ fontSize: '0.85rem' }}>💌 Un secret t'attend… tape pour révéler</span>
+              )}
+              {isRevealed && (
+                <button onClick={(e) => { e.stopPropagation(); removeSecret(s.id); }} style={{ background: 'none', border: 'none', color: '#bbb', flexShrink: 0 }}>
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+          );
+        })}
+        <textarea value={secretText} onChange={e => setSecretText(e.target.value)} placeholder="Écris un secret ou un compliment surprise…" />
+        <button className="primary" onClick={addSecret}><Lock size={15} /> Cacher ce secret</button>
+      </div>
+
       <div className="card">
         <h3>💌 Lettre / mot doux</h3>
         <textarea value={note} onChange={e => setNote(e.target.value)} placeholder="Écris quelque chose que l'autre pourra relire plus tard…" />
@@ -899,9 +1024,57 @@ function Games({ data, save, name }) {
   const [answer, setAnswer] = useState("");
   const [commentDrafts, setCommentDrafts] = useState({});
 
+  const [wheelOptions, setWheelOptions] = useState(["Pizza", "Sushi", "Pâtes", "Salade", "Burger", "Tacos"]);
+  const [wheelInput, setWheelInput] = useState("");
+  const [spinning, setSpinning] = useState(false);
+  const [highlighted, setHighlighted] = useState(0);
+  const [winner, setWinner] = useState(null);
+
+  const [outCategory, setOutCategory] = useState(null);
+  const [outIdea, setOutIdea] = useState(null);
+
   const nextQuestion = () => setQ(questions[Math.floor(Math.random() * questions.length)]);
   const nextCard = () => setCard(truthOrDare[Math.floor(Math.random() * truthOrDare.length)]);
   const nextWyr = () => setWyr(wouldYouRather[Math.floor(Math.random() * wouldYouRather.length)]);
+
+  const addWheelOption = () => {
+    if (!wheelInput.trim()) return;
+    setWheelOptions([...wheelOptions, wheelInput.trim()]);
+    setWheelInput("");
+  };
+  const removeWheelOption = (i) => setWheelOptions(wheelOptions.filter((_, idx) => idx !== i));
+
+  const spinWheel = () => {
+    if (wheelOptions.length < 2 || spinning) return;
+    setSpinning(true);
+    setWinner(null);
+    let count = 0;
+    const totalTicks = 18 + Math.floor(Math.random() * 10);
+    const interval = setInterval(() => {
+      setHighlighted(h => (h + 1) % wheelOptions.length);
+      count++;
+      if (count >= totalTicks) {
+        clearInterval(interval);
+        const finalIndex = Math.floor(Math.random() * wheelOptions.length);
+        setHighlighted(finalIndex);
+        setWinner(wheelOptions[finalIndex]);
+        setSpinning(false);
+      }
+    }, 90);
+  };
+
+  const pickOuting = (cat) => {
+    const list = dateIdeasCategories[cat];
+    setOutCategory(cat);
+    setOutIdea(list[Math.floor(Math.random() * list.length)]);
+  };
+  const anotherOuting = () => pickOuting(outCategory);
+  const markOutingDone = () => {
+    if (!outIdea) return;
+    save({ ...data, outingsDone: [{ id: uid(), idea: outIdea, category: outCategory, date: new Date().toISOString() }, ...data.outingsDone] });
+    setOutIdea(null); setOutCategory(null);
+    setMode("menu");
+  };
 
   const saveAnswer = (prompt, text) => {
     if (!text || !text.trim()) return;
@@ -930,6 +1103,8 @@ function Games({ data, save, name }) {
           <button className="quick" onClick={() => { setMode("question"); nextQuestion(); }}><Sparkles size={19} /><span>Question du jour</span></button>
           <button className="quick" onClick={() => { setMode("truth"); nextCard(); }}><MessageCircleHeart size={19} /><span>Action ou Vérité</span></button>
           <button className="quick" onClick={() => { setMode("wyr"); nextWyr(); }}><Gift size={19} /><span>Tu préfères… ?</span></button>
+          <button className="quick" onClick={() => { setMode("wheel"); setWinner(null); }}><RefreshCw size={19} /><span>Roue des décisions</span></button>
+          <button className="quick" onClick={() => { setMode("outings"); setOutCategory(null); setOutIdea(null); }}><Calendar size={19} /><span>Idées de sorties</span></button>
         </div>
       )}
       {mode === "question" && (
@@ -966,6 +1141,71 @@ function Games({ data, save, name }) {
         </div>
       )}
 
+      {mode === "wheel" && (
+        <div className="game card">
+          <RefreshCw size={22} />
+          <div className="tag">ROUE DES DÉCISIONS</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', margin: '12px 0' }}>
+            {wheelOptions.map((opt, i) => (
+              <div
+                key={i}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '10px 12px', borderRadius: '10px',
+                  border: highlighted === i ? '2px solid #C9184A' : '1px solid #eee',
+                  background: winner === opt ? '#fdf2f8' : (highlighted === i && spinning ? '#fff7ed' : '#fff'),
+                  fontWeight: winner === opt ? 700 : 400,
+                  transition: 'background 0.1s ease'
+                }}
+              >
+                <span>{winner === opt ? "🎉 " : ""}{opt}</span>
+                {!spinning && <button onClick={() => removeWheelOption(i)} style={{ background: 'none', border: 'none', padding: 0, color: '#bbb' }}><X size={14} /></button>}
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: '6px', marginBottom: '10px' }}>
+            <input value={wheelInput} onChange={e => setWheelInput(e.target.value)} onKeyDown={e => e.key === "Enter" && addWheelOption()} placeholder="Ajouter un choix…" style={{ flex: 1 }} />
+            <button onClick={addWheelOption} style={{ padding: '0 12px' }}><Plus size={16} /></button>
+          </div>
+          <button className="primary" onClick={spinWheel} disabled={spinning || wheelOptions.length < 2}>
+            {spinning ? "Ça tourne…" : "Faire tourner la roue"}
+          </button>
+          <button className="secondary" onClick={() => setMode("menu")}>← Retour</button>
+        </div>
+      )}
+
+      {mode === "outings" && (
+        <div className="game card">
+          <Calendar size={22} />
+          <div className="tag">IDÉES DE SORTIES</div>
+          {!outCategory ? (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', margin: '12px 0' }}>
+              {Object.keys(dateIdeasCategories).map(cat => (
+                <button key={cat} className="quick" onClick={() => pickOuting(cat)}><span>{cat}</span></button>
+              ))}
+            </div>
+          ) : (
+            <>
+              <div style={{ fontSize: '0.75rem', opacity: 0.6, margin: '10px 0 4px' }}>{outCategory}</div>
+              <h3>{outIdea}</h3>
+              <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+                <button className="primary" onClick={markOutingDone}><Check size={15} /> On l'a fait !</button>
+                <button className="secondary" onClick={anotherOuting}><RefreshCw size={15} /> Une autre idée</button>
+              </div>
+            </>
+          )}
+          <button className="secondary" onClick={() => setMode("menu")} style={{ marginTop: '10px' }}>← Retour</button>
+          {data.outingsDone.length > 0 && (
+            <div style={{ marginTop: '16px', textAlign: 'left' }}>
+              <div style={{ fontSize: '0.8rem', fontWeight: 700, marginBottom: '6px' }}>Déjà réalisées ({data.outingsDone.length})</div>
+              {data.outingsDone.slice(0, 6).map(o => (
+                <div key={o.id} style={{ fontSize: '0.8rem', color: '#8A5568', marginBottom: '3px' }}>✔️ {o.idea}</div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {mode === "menu" && data.gameAnswers.length > 0 && (
         <div style={{ marginTop: '18px' }}>
           <h3 style={{ fontSize: '0.95rem', margin: '0 0 10px 4px' }}>Notre fil de réponses</h3>
@@ -999,7 +1239,7 @@ function Games({ data, save, name }) {
   );
 }
 
-function More({ data, save, logout, room }) {
+function More({ data, save, logout, room, name }) {
   const [v, setV] = useState(0);
   const toggle = () => save({
     ...data,
@@ -1007,6 +1247,30 @@ function More({ data, save, logout, room }) {
       ? data.savedVerses.filter(x => x !== verses[v][0])
       : [...data.savedVerses, verses[v][0]]
   });
+
+  const [wishItem, setWishItem] = useState("");
+  const addWish = () => {
+    if (!wishItem.trim()) return;
+    save({ ...data, wishlist: [{ id: uid(), text: wishItem.trim(), done: false }, ...data.wishlist] });
+    setWishItem("");
+  };
+  const toggleWish = (id) => save({ ...data, wishlist: data.wishlist.map(w => w.id === id ? { ...w, done: !w.done } : w) });
+  const removeWish = (id) => save({ ...data, wishlist: data.wishlist.filter(w => w.id !== id) });
+
+  const [capsuleText, setCapsuleText] = useState("");
+  const [capsuleDate, setCapsuleDate] = useState("");
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const addCapsule = () => {
+    if (!capsuleText.trim() || !capsuleDate) return;
+    save({ ...data, capsules: [{ id: uid(), text: capsuleText.trim(), unlockDate: capsuleDate, author: name }, ...data.capsules] });
+    setCapsuleText(""); setCapsuleDate("");
+  };
+  const removeCapsule = (id) => save({ ...data, capsules: data.capsules.filter(c => c.id !== id) });
+
+  const toggleChallenge = (text) => {
+    const already = data.challengesDone.includes(text);
+    save({ ...data, challengesDone: already ? data.challengesDone.filter(t => t !== text) : [...data.challengesDone, text] });
+  };
 
   return (
     <div>
@@ -1022,6 +1286,59 @@ function More({ data, save, logout, room }) {
           <button onClick={() => setV((v + 1) % verses.length)}>
             <RefreshCw size={15} /> Autre
           </button>
+        </div>
+      </div>
+
+      <div className="card">
+        <h3>🎁 Notre wishlist</h3>
+        {data.wishlist.map(w => (
+          <div key={w.id} className="row" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 0' }}>
+            <button onClick={() => toggleWish(w.id)} style={{ background: 'none', border: 'none', padding: 0 }}>
+              {w.done ? <Check size={16} color="#22c55e" /> : <span style={{ width: 16, height: 16, borderRadius: '50%', border: '1.5px solid #ccc', display: 'inline-block' }} />}
+            </button>
+            <span style={{ flex: 1, textDecoration: w.done ? 'line-through' : 'none', opacity: w.done ? 0.5 : 1 }}>{w.text}</span>
+            <button onClick={() => removeWish(w.id)} style={{ background: 'none', border: 'none', color: '#bbb' }}><Trash2 size={14} /></button>
+          </div>
+        ))}
+        <div className="inline" style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
+          <input value={wishItem} onChange={e => setWishItem(e.target.value)} onKeyDown={e => e.key === "Enter" && addWish()} placeholder="Un cadeau, un voyage, un projet…" />
+          <button onClick={addWish}><Plus size={16} /></button>
+        </div>
+      </div>
+
+      <div className="card">
+        <h3>⏳ Capsule temporelle</h3>
+        <p style={{ fontSize: '0.8rem', color: '#8A5568', margin: '0 0 10px' }}>Un message qui se déverrouille à une date future.</p>
+        {data.capsules.map(c => {
+          const unlocked = c.unlockDate <= todayStr;
+          return (
+            <div key={c.id} style={{ padding: '10px', borderRadius: '10px', marginBottom: '8px', background: unlocked ? '#fdf2f8' : '#f3f0f2', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+              {unlocked ? (
+                <div><small style={{ opacity: 0.6 }}>{c.author || "Anonyme"}</small><p style={{ margin: '2px 0 0' }}>{c.text}</p></div>
+              ) : (
+                <div style={{ fontSize: '0.85rem', color: '#8A5568' }}>🔒 Se déverrouille le {fmtDate(c.unlockDate)}</div>
+              )}
+              <button onClick={() => removeCapsule(c.id)} style={{ background: 'none', border: 'none', color: '#bbb', flexShrink: 0 }}><X size={14} /></button>
+            </div>
+          );
+        })}
+        <textarea value={capsuleText} onChange={e => setCapsuleText(e.target.value)} placeholder="Le message à découvrir plus tard…" />
+        <input type="date" value={capsuleDate} onChange={e => setCapsuleDate(e.target.value)} style={{ marginBottom: '8px' }} />
+        <button className="primary" onClick={addCapsule}><Clock3 size={15} /> Sceller la capsule</button>
+      </div>
+
+      <div className="card">
+        <h3>🏆 Défis de la semaine</h3>
+        {challengesList.map(c => (
+          <div key={c} className="row" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 0' }}>
+            <button onClick={() => toggleChallenge(c)} style={{ background: 'none', border: 'none', padding: 0 }}>
+              {data.challengesDone.includes(c) ? <Check size={16} color="#22c55e" /> : <span style={{ width: 16, height: 16, borderRadius: '50%', border: '1.5px solid #ccc', display: 'inline-block' }} />}
+            </button>
+            <span style={{ flex: 1, textDecoration: data.challengesDone.includes(c) ? 'line-through' : 'none', opacity: data.challengesDone.includes(c) ? 0.5 : 1 }}>{c}</span>
+          </div>
+        ))}
+        <div style={{ fontSize: '0.8rem', color: '#8A5568', marginTop: '8px' }}>
+          {data.challengesDone.length} / {challengesList.length} défis relevés 🎉
         </div>
       </div>
 
@@ -1054,3 +1371,4 @@ function More({ data, save, logout, room }) {
     </div>
   );
 }
+
