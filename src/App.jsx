@@ -21,6 +21,7 @@ const EMPTY = {
   memories: [],
   gameAnswers: [],
   location: null,
+  gpsLocations: { you: null, partner: null },
   events: [],
   notes: [],
   goals: [],
@@ -103,6 +104,7 @@ function mergeData(raw) {
     memories: raw?.memories || [],
     gameAnswers: raw?.gameAnswers || [],
     location: raw?.location || null,
+    gpsLocations: { ...EMPTY.gpsLocations, ...(raw?.gpsLocations || {}) },
     events: raw?.events || [],
     notes: raw?.notes || [],
     goals: raw?.goals || [],
@@ -837,6 +839,12 @@ function Agenda({ data, save }) {
   const [editingLoc, setEditingLoc] = useState(false);
   const [locLabel, setLocLabel] = useState(data.location?.label || "");
   const [locAddress, setLocAddress] = useState(data.location?.address || "");
+  const [gpsBusy, setGpsBusy] = useState(false);
+  const [gpsError, setGpsError] = useState("");
+
+  const gps = data.gpsLocations || { you: null, partner: null };
+  const youGps = gps.you;
+  const partnerGps = gps.partner;
 
   const add = () => {
     if (!title || !date) return;
@@ -855,13 +863,124 @@ function Agenda({ data, save }) {
     setLocLabel(""); setLocAddress("");
   };
 
-  const mapsUrl = data.location?.address
-    ? "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(data.location.address)
+  const shareMyPosition = () => {
+    setGpsError("");
+    if (!navigator.geolocation) {
+      setGpsError("La géolocalisation n'est pas disponible sur cet appareil.");
+      return;
+    }
+    setGpsBusy(true);
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        const role = localStorage.getItem("oamy:role") || "you";
+        const nextGps = {
+          ...(data.gpsLocations || { you: null, partner: null }),
+          [role]: {
+            lat: Number(coords.latitude.toFixed(6)),
+            lng: Number(coords.longitude.toFixed(6)),
+            accuracy: Math.round(coords.accuracy || 0),
+            updatedAt: new Date().toISOString()
+          }
+        };
+        save({ ...data, gpsLocations: nextGps });
+        setGpsBusy(false);
+      },
+      (err) => {
+        const messages = {
+          1: "Autorise la localisation dans ton navigateur pour partager ta position.",
+          2: "Position GPS indisponible. Vérifie le GPS de ton téléphone.",
+          3: "La localisation a pris trop de temps. Réessaie."
+        };
+        setGpsError(messages[err.code] || "Impossible de récupérer ta position.");
+        setGpsBusy(false);
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 }
+    );
+  };
+
+  const clearMyPosition = () => {
+    const role = localStorage.getItem("oamy:role") || "you";
+    save({ ...data, gpsLocations: { ...gps, [role]: null } });
+  };
+
+  const activePoint = partnerGps || youGps;
+  const mapUrl = activePoint
+    ? `https://www.google.com/maps?q=${activePoint.lat},${activePoint.lng}&z=16&output=embed`
     : null;
+
+  const pointLabel = partnerGps ? "Position de ton/ta partenaire" : youGps ? "Ta position partagée" : "Aucune position partagée";
+  const formatUpdated = (point) => point?.updatedAt
+    ? new Date(point.updatedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
+    : "";
 
   return (
     <div>
       <Title title="Notre agenda" sub="Les dates qui comptent pour nous." />
+
+      {/* VISIONNEUR GPS — fonctionne directement dans App.jsx, sans API GPS supplémentaire. */}
+      <div className="card" style={{ overflow: "hidden", padding: 0, marginBottom: "14px" }}>
+        <div style={{
+          padding: "16px 16px 12px",
+          background: "linear-gradient(135deg, #6E2338 0%, #4A1626 55%, #2B0F1A 100%)",
+          color: "#FBF3EC"
+        }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: "0.75rem", letterSpacing: "0.08em", textTransform: "uppercase", color: "#E9B9C4" }}>
+                <Navigation size={14} /> Visionneur GPS
+              </div>
+              <div style={{ fontSize: "1.08rem", fontWeight: 700, marginTop: 5 }}>Où sommes-nous ?</div>
+            </div>
+            <div style={{
+              width: 38, height: 38, borderRadius: "50%", display: "grid", placeItems: "center",
+              background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.18)"
+            }}>
+              <MapPin size={19} />
+            </div>
+          </div>
+          <div style={{ marginTop: 10, fontSize: "0.82rem", color: "#E9B9C4" }}>
+            {pointLabel}{activePoint?.updatedAt ? ` · mis à jour à ${formatUpdated(activePoint)}` : ""}
+          </div>
+        </div>
+
+        {mapUrl ? (
+          <div style={{ background: "#eee", position: "relative" }}>
+            <iframe
+              title="Visionneur GPS Only Me & You"
+              src={mapUrl}
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+              style={{ display: "block", width: "100%", height: 260, border: 0 }}
+            />
+            <div style={{ padding: "10px 12px", fontSize: "0.75rem", color: "#8A5568", background: "#fff" }}>
+              📍 {partnerGps ? "La position de ton/ta partenaire est affichée." : "Ta position est affichée."}
+              {activePoint?.accuracy ? ` Précision GPS ≈ ${activePoint.accuracy} m.` : ""}
+            </div>
+          </div>
+        ) : (
+          <div style={{ padding: "28px 18px", textAlign: "center", background: "linear-gradient(180deg,#fff,#fff8fb)" }}>
+            <div style={{ width: 58, height: 58, margin: "0 auto 10px", borderRadius: "50%", display: "grid", placeItems: "center", background: "#fff0f5", color: "#C9184A" }}>
+              <Navigation size={25} />
+            </div>
+            <b style={{ color: "#4A1626" }}>Aucune position GPS partagée</b>
+            <p style={{ margin: "6px auto 0", maxWidth: 300, fontSize: "0.82rem", color: "#8A5568" }}>
+              Appuie sur le bouton ci-dessous pour partager ta position avec ton/ta partenaire.
+            </p>
+          </div>
+        )}
+
+        <div style={{ padding: "12px", display: "grid", gridTemplateColumns: "1fr auto", gap: 8 }}>
+          <button className="primary" onClick={shareMyPosition} disabled={gpsBusy}>
+            <Navigation size={15} /> {gpsBusy ? "Localisation…" : "Partager ma position"}
+          </button>
+          {(youGps || partnerGps) && (
+            <button className="secondary" onClick={clearMyPosition} title="Retirer ma position">
+              <Trash2 size={15} />
+            </button>
+          )}
+        </div>
+        {gpsError && <div style={{ margin: "0 12px 12px", padding: "9px 10px", borderRadius: 9, background: "#fff0f0", color: "#b42318", fontSize: "0.78rem" }}>{gpsError}</div>}
+      </div>
 
       {!editingLoc && data.location ? (
         <div style={{
@@ -882,17 +1001,15 @@ function Agenda({ data, save }) {
             </div>
           )}
           <div style={{ display: 'flex', gap: '8px', marginTop: '14px' }}>
-            {mapsUrl && (
-              <a href={mapsUrl} target="_blank" rel="noreferrer" style={{
-                flex: 1, textAlign: 'center', padding: '9px', borderRadius: '10px',
-                background: 'linear-gradient(135deg, #E3A857, #C9184A)', color: '#fff',
-                fontWeight: 700, fontSize: '0.85rem', textDecoration: 'none'
-              }}>
-                Ouvrir dans Maps
-              </a>
-            )}
+            <a href={data.location.address ? "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(data.location.address) : "#"} target="_blank" rel="noreferrer" style={{
+              flex: 1, textAlign: 'center', padding: '9px', borderRadius: '10px',
+              background: 'linear-gradient(135deg, #E3A857, #C9184A)', color: '#fff',
+              fontWeight: 700, fontSize: '0.85rem', textDecoration: 'none'
+            }}>
+              Ouvrir dans Maps
+            </a>
             <button
-              onClick={() => { setLocLabel(data.location.label); setLocAddress(data.location.address); setEditingLoc(true); }}
+              onClick={() => { setLocLabel(data.location.label || ""); setLocAddress(data.location.address || ""); setEditingLoc(true); }}
               style={{ padding: '9px 12px', borderRadius: '10px', background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', fontSize: '0.85rem' }}
             >
               Modifier
@@ -918,7 +1035,7 @@ function Agenda({ data, save }) {
         <button className="primary" onClick={add}><Plus size={15} /> Ajouter</button>
       </div>
       <div className="list">
-        {data.events.sort((a, b) => a.date.localeCompare(b.date)).map(e => (
+        {[...data.events].sort((a, b) => a.date.localeCompare(b.date)).map(e => (
           <div className="row card" key={e.id}>
             <Calendar size={18} />
             <div><b>{e.title}</b><small>{fmtDate(e.date)}</small></div>
@@ -1371,4 +1488,5 @@ function More({ data, save, logout, room, name }) {
     </div>
   );
 }
+
 
