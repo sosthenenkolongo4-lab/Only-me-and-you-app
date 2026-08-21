@@ -4,7 +4,7 @@ import {
   Heart, Home, MessageCircleHeart, Calendar, Wallet, Gamepad2, BookOpenText,
   Sparkles, Send, Camera, Gift, Check, Copy, LogOut, Users, Clock3,
   Plus, Trash2, Star, RefreshCw, Lock, ArrowRight, X, BellRing, Settings,
-  MapPin, Navigation
+  MapPin
 } from "lucide-react";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -21,8 +21,9 @@ const EMPTY = {
   memories: [],
   gameAnswers: [],
   location: null,
-  gpsLocations: { you: null, partner: null },
   events: [],
+  importantDates: [],
+  programs: [],
   notes: [],
   goals: [],
   transactions: [],
@@ -95,18 +96,31 @@ const uid = () => crypto.randomUUID ? crypto.randomUUID() : Math.random().toStri
 const fmtDate = d => new Date(d + "T00:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
 
 function mergeData(raw) {
+  const safeRaw = { ...(raw || {}) };
+  // L'ancienne version stockait la position GPS. On l'ignore désormais
+  // pour que cette fonctionnalité soit complètement retirée de l'application.
+  delete safeRaw.gpsLocations;
+
+  const legacyEvents = Array.isArray(safeRaw.events) ? safeRaw.events : [];
+  const importantDates = Array.isArray(safeRaw.importantDates)
+    ? safeRaw.importantDates
+    : legacyEvents;
+
   return {
-    ...EMPTY, ...raw,
-    names: { ...EMPTY.names, ...(raw?.names || {}) },
-    score: { ...EMPTY.score, ...(raw?.score || {}) },
-    settings: { ...EMPTY.settings, ...(raw?.settings || {}) },
-    messages: raw?.messages || [],
-    memories: raw?.memories || [],
-    gameAnswers: raw?.gameAnswers || [],
-    location: raw?.location || null,
-    gpsLocations: { ...EMPTY.gpsLocations, ...(raw?.gpsLocations || {}) },
-    events: raw?.events || [],
-    notes: raw?.notes || [],
+    ...EMPTY, ...safeRaw,
+    names: { ...EMPTY.names, ...(safeRaw.names || {}) },
+    score: { ...EMPTY.score, ...(safeRaw.score || {}) },
+    settings: { ...EMPTY.settings, ...(safeRaw.settings || {}) },
+    messages: safeRaw.messages || [],
+    memories: safeRaw.memories || [],
+    gameAnswers: safeRaw.gameAnswers || [],
+    location: safeRaw.location || null,
+    importantDates,
+    programs: Array.isArray(safeRaw.programs) ? safeRaw.programs : [],
+    // Compatibilité avec les anciennes données : les événements historiques
+    // sont désormais considérés comme des dates importantes.
+    events: [],
+    notes: safeRaw.notes || [],
     goals: raw?.goals || [],
     transactions: raw?.transactions || [],
     savedVerses: raw?.savedVerses || [],
@@ -293,7 +307,7 @@ export default function App() {
         </div>
       </div>
       <main className="main">
-        {tab === "home" && <HomeScreen data={data} name={name} role={role} setTab={setTab} save={save} />}
+        {tab === "home" && <HomeScreen data={data} name={name} role={role} setName={setName} setTab={setTab} save={save} />}
         {tab === "chat" && <Chat data={data} name={name} save={save} />}
         {tab === "story" && <Story data={data} save={save} name={name} />}
         {tab === "agenda" && <Agenda data={data} save={save} />}
@@ -418,23 +432,147 @@ function Loading() {
   );
 }
 
-function Shell({ children }) { return <div className="app">{children}</div>; }
+function Shell({ children }) {
+  return (
+    <div className="app">
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Allura&family=Great+Vibes&display=swap');
+
+        /* Navigation style capsule / glassmorphism */
+        .app > nav {
+          position: fixed !important;
+          left: 14px !important;
+          right: 14px !important;
+          bottom: 14px !important;
+          z-index: 1000 !important;
+          height: 72px !important;
+          padding: 7px !important;
+          display: grid !important;
+          grid-template-columns: repeat(6, minmax(0, 1fr)) !important;
+          align-items: stretch !important;
+          gap: 5px !important;
+          box-sizing: border-box !important;
+          border: 1px solid rgba(255,255,255,.30) !important;
+          border-radius: 26px !important;
+          background:
+            linear-gradient(135deg, rgba(75,25,48,.94), rgba(35,12,25,.96)) !important;
+          box-shadow:
+            0 18px 45px rgba(55, 10, 30, .28),
+            inset 0 1px 0 rgba(255,255,255,.16),
+            inset 0 -1px 0 rgba(0,0,0,.20) !important;
+          backdrop-filter: blur(18px) saturate(130%) !important;
+          -webkit-backdrop-filter: blur(18px) saturate(130%) !important;
+        }
+
+        .app > nav button {
+          position: relative !important;
+          min-width: 0 !important;
+          min-height: 58px !important;
+          border: 0 !important;
+          border-radius: 21px !important;
+          background: transparent !important;
+          color: rgba(255,236,242,.64) !important;
+          display: flex !important;
+          flex-direction: column !important;
+          align-items: center !important;
+          justify-content: center !important;
+          gap: 3px !important;
+          padding: 5px 2px !important;
+          font: inherit !important;
+          cursor: pointer !important;
+          transition:
+            transform .22s ease,
+            color .22s ease,
+            background .22s ease,
+            box-shadow .22s ease !important;
+          -webkit-tap-highlight-color: transparent !important;
+        }
+
+        .app > nav button svg {
+          width: 20px !important;
+          height: 20px !important;
+          flex: 0 0 auto !important;
+          transition: transform .22s ease, filter .22s ease !important;
+        }
+
+        .app > nav button span {
+          font-size: 10px !important;
+          line-height: 1.1 !important;
+          white-space: nowrap !important;
+          letter-spacing: .1px !important;
+        }
+
+        .app > nav button.active {
+          color: #fff7fa !important;
+          background:
+            linear-gradient(145deg, rgba(255,255,255,.18), rgba(255,190,210,.10)) !important;
+          border: 1px solid rgba(255,255,255,.22) !important;
+          box-shadow:
+            0 0 0 1px rgba(255,255,255,.05),
+            0 8px 20px rgba(0,0,0,.20),
+            inset 0 1px 0 rgba(255,255,255,.25) !important;
+        }
+
+        .app > nav button.active::before {
+          content: "" !important;
+          position: absolute !important;
+          inset: 3px !important;
+          border-radius: 18px !important;
+          pointer-events: none !important;
+          box-shadow: 0 0 18px rgba(255,205,220,.16) !important;
+        }
+
+        .app > nav button.active svg {
+          transform: translateY(-1px) scale(1.06) !important;
+          filter: drop-shadow(0 0 7px rgba(255,218,229,.45)) !important;
+        }
+
+        .app > nav button:active {
+          transform: scale(.94) !important;
+        }
+
+        /* Laisse de l'espace au contenu pour la barre flottante */
+        .app > main {
+          padding-bottom: 105px !important;
+        }
+
+        @media (min-width: 700px) {
+          .app > nav {
+            left: 50% !important;
+            right: auto !important;
+            width: min(680px, calc(100% - 36px)) !important;
+            transform: translateX(-50%) !important;
+          }
+        }
+      `}</style>
+      {children}
+    </div>
+  );
+}
 
 function Nav({ tab, setTab }) {
   const items = [
     ["home", "Nous", Home],
     ["chat", "Messages", MessageCircleHeart],
-    ["story", "Histoire", Sparkles],
+    ["story", "Histoire", BookOpenText],
     ["agenda", "Agenda", Calendar],
     ["games", "Jeux", Gamepad2],
-    ["more", "Plus", BookOpenText]
+    ["more", "Plus", Plus]
   ];
+
   return (
-    <nav>
-      {items.map(([id, l, I]) => (
-        <button className={tab === id ? "active" : ""} onClick={() => setTab(id)} key={id}>
-          <I size={17} />
-          <span>{l}</span>
+    <nav aria-label="Navigation principale">
+      {items.map(([id, label, Icon]) => (
+        <button
+          type="button"
+          className={tab === id ? "active" : ""}
+          onClick={() => setTab(id)}
+          key={id}
+          aria-label={label}
+          aria-current={tab === id ? "page" : undefined}
+        >
+          <Icon size={20} strokeWidth={2} />
+          <span>{label}</span>
         </button>
       ))}
     </nav>
@@ -443,7 +581,7 @@ function Nav({ tab, setTab }) {
 
 function Title({ title, sub }) { return <div className="title"><h2>{title}</h2><p>{sub}</p></div>; }
 
-function HomeScreen({ data, name, role, setTab, save }) {
+function HomeScreen({ data, name, role, setName, setTab, save }) {
   const [now, setNow] = useState(new Date());
   const [isEditingDate, setIsEditingDate] = useState(false);
   const [tempDate, setTempDate] = useState(data.startDate);
@@ -487,7 +625,17 @@ function HomeScreen({ data, name, role, setTab, save }) {
   };
 
   const handleSaveNames = () => {
-    save({ ...data, names: { you: tempYou.trim(), partner: tempPartner.trim() } });
+    const nextYou = tempYou.trim();
+    const nextPartner = tempPartner.trim();
+    if (!nextYou || !nextPartner) return;
+
+    // Le prénom affiché par l'accueil doit être synchronisé avec le prénom
+    // enregistré localement, sinon l'ancien prénom revenait immédiatement.
+    const nextMyName = role === "you" ? nextYou : nextPartner;
+    localStorage.setItem("oamy:name", nextMyName);
+    setName(nextMyName);
+
+    save({ ...data, names: { you: nextYou, partner: nextPartner } });
     setIsEditingNames(false);
   };
 
@@ -497,7 +645,17 @@ function HomeScreen({ data, name, role, setTab, save }) {
         <div className="floating"><Heart fill="currentColor" /><Heart /><Heart fill="currentColor" /></div>
         <div className="online"><span /> Votre espace est synchronisé</div>
 
-        <div className="couple-name" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+        <div
+          className="couple-name"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            fontFamily: '"Great Vibes", "Allura", "Brush Script MT", cursive',
+            fontWeight: 400
+          }}
+        >
           {myName} <b>♡</b> {partnerName}
           <button
             onClick={() => { setTempYou(data.names.you || ""); setTempPartner(data.names.partner || ""); setIsEditingNames(!isEditingNames); }}
@@ -835,214 +993,363 @@ function Story({ data, save, name }) {
 }
 
 function Agenda({ data, save }) {
-  const [title, setTitle] = useState(""), [date, setDate] = useState("");
+  const [importantTitle, setImportantTitle] = useState("");
+  const [importantDate, setImportantDate] = useState("");
+
+  const [programTitle, setProgramTitle] = useState("");
+  const [programDate, setProgramDate] = useState("");
+  const [programTime, setProgramTime] = useState("");
+  const [programPlace, setProgramPlace] = useState("");
+  const [programNote, setProgramNote] = useState("");
+
   const [editingLoc, setEditingLoc] = useState(false);
   const [locLabel, setLocLabel] = useState(data.location?.label || "");
   const [locAddress, setLocAddress] = useState(data.location?.address || "");
-  const [gpsBusy, setGpsBusy] = useState(false);
-  const [gpsError, setGpsError] = useState("");
 
-  const gps = data.gpsLocations || { you: null, partner: null };
-  const youGps = gps.you;
-  const partnerGps = gps.partner;
+  const importantDates = data.importantDates || [];
+  const programs = data.programs || [];
 
-  const add = () => {
-    if (!title || !date) return;
-    save({ ...data, events: [...data.events, { id: uid(), title, date }] });
-    setTitle(""); setDate("");
+  const addImportantDate = () => {
+    if (!importantTitle.trim() || !importantDate) return;
+    save({
+      ...data,
+      importantDates: [
+        ...importantDates,
+        { id: uid(), title: importantTitle.trim(), date: importantDate }
+      ]
+    });
+    setImportantTitle("");
+    setImportantDate("");
+  };
+
+  const removeImportantDate = (id) => {
+    save({
+      ...data,
+      importantDates: importantDates.filter(item => item.id !== id)
+    });
+  };
+
+  const addProgram = () => {
+    if (!programTitle.trim() || !programDate) return;
+
+    save({
+      ...data,
+      programs: [
+        ...programs,
+        {
+          id: uid(),
+          title: programTitle.trim(),
+          date: programDate,
+          time: programTime,
+          place: programPlace.trim(),
+          note: programNote.trim()
+        }
+      ]
+    });
+
+    setProgramTitle("");
+    setProgramDate("");
+    setProgramTime("");
+    setProgramPlace("");
+    setProgramNote("");
+  };
+
+  const removeProgram = (id) => {
+    save({
+      ...data,
+      programs: programs.filter(item => item.id !== id)
+    });
   };
 
   const saveLocation = () => {
     if (!locLabel.trim() && !locAddress.trim()) return;
-    save({ ...data, location: { label: locLabel.trim(), address: locAddress.trim(), updatedAt: new Date().toISOString() } });
+    save({
+      ...data,
+      location: {
+        label: locLabel.trim(),
+        address: locAddress.trim(),
+        updatedAt: new Date().toISOString()
+      }
+    });
     setEditingLoc(false);
   };
 
   const clearLocation = () => {
     save({ ...data, location: null });
-    setLocLabel(""); setLocAddress("");
+    setLocLabel("");
+    setLocAddress("");
   };
 
-  const shareMyPosition = () => {
-    setGpsError("");
-    if (!navigator.geolocation) {
-      setGpsError("La géolocalisation n'est pas disponible sur cet appareil.");
-      return;
-    }
-    setGpsBusy(true);
-    navigator.geolocation.getCurrentPosition(
-      ({ coords }) => {
-        const role = localStorage.getItem("oamy:role") || "you";
-        const nextGps = {
-          ...(data.gpsLocations || { you: null, partner: null }),
-          [role]: {
-            lat: Number(coords.latitude.toFixed(6)),
-            lng: Number(coords.longitude.toFixed(6)),
-            accuracy: Math.round(coords.accuracy || 0),
-            updatedAt: new Date().toISOString()
-          }
-        };
-        save({ ...data, gpsLocations: nextGps });
-        setGpsBusy(false);
-      },
-      (err) => {
-        const messages = {
-          1: "Autorise la localisation dans ton navigateur pour partager ta position.",
-          2: "Position GPS indisponible. Vérifie le GPS de ton téléphone.",
-          3: "La localisation a pris trop de temps. Réessaie."
-        };
-        setGpsError(messages[err.code] || "Impossible de récupérer ta position.");
-        setGpsBusy(false);
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 }
-    );
-  };
+  const sortedImportantDates = [...importantDates].sort((a, b) =>
+    (a.date || "").localeCompare(b.date || "")
+  );
 
-  const clearMyPosition = () => {
-    const role = localStorage.getItem("oamy:role") || "you";
-    save({ ...data, gpsLocations: { ...gps, [role]: null } });
-  };
-
-  const activePoint = partnerGps || youGps;
-  const mapUrl = activePoint
-    ? `https://www.google.com/maps?q=${activePoint.lat},${activePoint.lng}&z=16&output=embed`
-    : null;
-
-  const pointLabel = partnerGps ? "Position de ton/ta partenaire" : youGps ? "Ta position partagée" : "Aucune position partagée";
-  const formatUpdated = (point) => point?.updatedAt
-    ? new Date(point.updatedAt).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
-    : "";
+  const sortedPrograms = [...programs].sort((a, b) => {
+    const aKey = `${a.date || ""} ${a.time || ""}`;
+    const bKey = `${b.date || ""} ${b.time || ""}`;
+    return aKey.localeCompare(bKey);
+  });
 
   return (
     <div>
-      <Title title="Notre agenda" sub="Les dates qui comptent pour nous." />
+      <Title title="Notre agenda" sub="Les dates et les programmes qui comptent pour nous." />
 
-      {/* VISIONNEUR GPS — fonctionne directement dans App.jsx, sans API GPS supplémentaire. */}
-      <div className="card" style={{ overflow: "hidden", padding: 0, marginBottom: "14px" }}>
-        <div style={{
-          padding: "16px 16px 12px",
-          background: "linear-gradient(135deg, #6E2338 0%, #4A1626 55%, #2B0F1A 100%)",
-          color: "#FBF3EC"
-        }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-            <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: "0.75rem", letterSpacing: "0.08em", textTransform: "uppercase", color: "#E9B9C4" }}>
-                <Navigation size={14} /> Visionneur GPS
-              </div>
-              <div style={{ fontSize: "1.08rem", fontWeight: 700, marginTop: 5 }}>Où sommes-nous ?</div>
-            </div>
-            <div style={{
-              width: 38, height: 38, borderRadius: "50%", display: "grid", placeItems: "center",
-              background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.18)"
-            }}>
-              <MapPin size={19} />
-            </div>
-          </div>
-          <div style={{ marginTop: 10, fontSize: "0.82rem", color: "#E9B9C4" }}>
-            {pointLabel}{activePoint?.updatedAt ? ` · mis à jour à ${formatUpdated(activePoint)}` : ""}
+      {/* ==================== DATES IMPORTANTES ==================== */}
+      <div className="card">
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
+          <span style={{ fontSize: "1.2rem" }}>❤️</span>
+          <div>
+            <h3 style={{ margin: 0 }}>Dates importantes</h3>
+            <small style={{ color: "#8A5568" }}>Les anniversaires et les dates à ne jamais oublier.</small>
           </div>
         </div>
 
-        {mapUrl ? (
-          <div style={{ background: "#eee", position: "relative" }}>
-            <iframe
-              title="Visionneur GPS Only Me & You"
-              src={mapUrl}
-              loading="lazy"
-              referrerPolicy="no-referrer-when-downgrade"
-              style={{ display: "block", width: "100%", height: 260, border: 0 }}
-            />
-            <div style={{ padding: "10px 12px", fontSize: "0.75rem", color: "#8A5568", background: "#fff" }}>
-              📍 {partnerGps ? "La position de ton/ta partenaire est affichée." : "Ta position est affichée."}
-              {activePoint?.accuracy ? ` Précision GPS ≈ ${activePoint.accuracy} m.` : ""}
-            </div>
-          </div>
-        ) : (
-          <div style={{ padding: "28px 18px", textAlign: "center", background: "linear-gradient(180deg,#fff,#fff8fb)" }}>
-            <div style={{ width: 58, height: 58, margin: "0 auto 10px", borderRadius: "50%", display: "grid", placeItems: "center", background: "#fff0f5", color: "#C9184A" }}>
-              <Navigation size={25} />
-            </div>
-            <b style={{ color: "#4A1626" }}>Aucune position GPS partagée</b>
-            <p style={{ margin: "6px auto 0", maxWidth: 300, fontSize: "0.82rem", color: "#8A5568" }}>
-              Appuie sur le bouton ci-dessous pour partager ta position avec ton/ta partenaire.
-            </p>
-          </div>
-        )}
-
-        <div style={{ padding: "12px", display: "grid", gridTemplateColumns: "1fr auto", gap: 8 }}>
-          <button className="primary" onClick={shareMyPosition} disabled={gpsBusy}>
-            <Navigation size={15} /> {gpsBusy ? "Localisation…" : "Partager ma position"}
-          </button>
-          {(youGps || partnerGps) && (
-            <button className="secondary" onClick={clearMyPosition} title="Retirer ma position">
-              <Trash2 size={15} />
-            </button>
-          )}
-        </div>
-        {gpsError && <div style={{ margin: "0 12px 12px", padding: "9px 10px", borderRadius: 9, background: "#fff0f0", color: "#b42318", fontSize: "0.78rem" }}>{gpsError}</div>}
+        <input
+          value={importantTitle}
+          onChange={e => setImportantTitle(e.target.value)}
+          placeholder="Ex. Notre anniversaire, anniversaire de Joseph…"
+        />
+        <input
+          type="date"
+          value={importantDate}
+          onChange={e => setImportantDate(e.target.value)}
+        />
+        <button className="primary" onClick={addImportantDate}>
+          <Plus size={15} /> Ajouter une date importante
+        </button>
       </div>
 
+      <div className="list">
+        {sortedImportantDates.map(item => (
+          <div className="row card" key={item.id}>
+            <Calendar size={18} />
+            <div style={{ flex: 1 }}>
+              <b>{item.title}</b>
+              <small>{fmtDate(item.date)}</small>
+            </div>
+            <button
+              className="icon"
+              onClick={() => removeImportantDate(item.id)}
+              title="Supprimer"
+            >
+              <Trash2 size={15} />
+            </button>
+          </div>
+        ))}
+        {!sortedImportantDates.length && (
+          <div className="empty card">
+            Aucune date importante ajoutée pour l'instant. ❤️
+          </div>
+        )}
+      </div>
+
+      {/* ==================== PROGRAMMES ==================== */}
+      <div className="card" style={{ marginTop: "14px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
+          <span style={{ fontSize: "1.2rem" }}>📅</span>
+          <div>
+            <h3 style={{ margin: 0 }}>Nos programmes</h3>
+            <small style={{ color: "#8A5568" }}>Les sorties, rendez-vous et activités prévus ensemble.</small>
+          </div>
+        </div>
+
+        <input
+          value={programTitle}
+          onChange={e => setProgramTitle(e.target.value)}
+          placeholder="Ex. Dîner, sortie, voyage, rendez-vous…"
+        />
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+          <input
+            type="date"
+            value={programDate}
+            onChange={e => setProgramDate(e.target.value)}
+          />
+          <input
+            type="time"
+            value={programTime}
+            onChange={e => setProgramTime(e.target.value)}
+          />
+        </div>
+
+        <input
+          value={programPlace}
+          onChange={e => setProgramPlace(e.target.value)}
+          placeholder="Lieu / adresse (facultatif)"
+        />
+
+        <textarea
+          value={programNote}
+          onChange={e => setProgramNote(e.target.value)}
+          placeholder="Détails du programme (facultatif)…"
+          rows={3}
+        />
+
+        <button className="primary" onClick={addProgram}>
+          <Plus size={15} /> Ajouter au programme
+        </button>
+      </div>
+
+      <div className="list">
+        {sortedPrograms.map(item => (
+          <div className="row card" key={item.id} style={{ alignItems: "flex-start" }}>
+            <Calendar size={18} style={{ marginTop: 2 }} />
+            <div style={{ flex: 1 }}>
+              <b>{item.title}</b>
+              <small>
+                {fmtDate(item.date)}
+                {item.time ? ` · ${item.time}` : ""}
+              </small>
+              {item.place && (
+                <small style={{ marginTop: 3 }}>📍 {item.place}</small>
+              )}
+              {item.note && (
+                <small style={{ marginTop: 3 }}>{item.note}</small>
+              )}
+            </div>
+            <button
+              className="icon"
+              onClick={() => removeProgram(item.id)}
+              title="Supprimer"
+            >
+              <Trash2 size={15} />
+            </button>
+          </div>
+        ))}
+        {!sortedPrograms.length && (
+          <div className="empty card">
+            Aucun programme prévu pour le moment. 📅
+          </div>
+        )}
+      </div>
+
+      {/* ==================== PROCHAINE DESTINATION ==================== */}
       {!editingLoc && data.location ? (
         <div style={{
-          position: 'relative', borderRadius: '18px', padding: '18px',
-          background: 'linear-gradient(135deg, #6E2338 0%, #4A1626 55%, #2B0F1A 100%)',
-          color: '#FBF3EC', marginBottom: '14px', overflow: 'hidden'
+          position: "relative",
+          borderRadius: "18px",
+          padding: "18px",
+          background: "linear-gradient(135deg, #6E2338 0%, #4A1626 55%, #2B0F1A 100%)",
+          color: "#FBF3EC",
+          marginTop: "14px",
+          overflow: "hidden"
         }}>
-          <div style={{ position: 'absolute', top: -30, right: -30, width: 120, height: 120, borderRadius: '50%', background: 'radial-gradient(circle, rgba(227,168,87,0.35), rgba(227,168,87,0))' }} />
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.75rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: '#E9B9C4' }}>
-            <Navigation size={14} /> Notre prochaine destination
+          <div style={{
+            position: "absolute",
+            top: -30,
+            right: -30,
+            width: 120,
+            height: 120,
+            borderRadius: "50%",
+            background: "radial-gradient(circle, rgba(227,168,87,0.35), rgba(227,168,87,0))"
+          }} />
+
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            fontSize: "0.75rem",
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            color: "#E9B9C4"
+          }}>
+            <MapPin size={14} /> Notre prochaine destination
           </div>
-          <div style={{ fontSize: '1.25rem', fontWeight: 700, marginTop: '8px', color: '#F3D9B1' }}>
+
+          <div style={{
+            fontSize: "1.25rem",
+            fontWeight: 700,
+            marginTop: "8px",
+            color: "#F3D9B1"
+          }}>
             {data.location.label || "Destination"}
           </div>
+
           {data.location.address && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', marginTop: '4px', color: '#E9B9C4' }}>
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              fontSize: "0.85rem",
+              marginTop: "4px",
+              color: "#E9B9C4"
+            }}>
               <MapPin size={13} /> {data.location.address}
             </div>
           )}
-          <div style={{ display: 'flex', gap: '8px', marginTop: '14px' }}>
-            <a href={data.location.address ? "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(data.location.address) : "#"} target="_blank" rel="noreferrer" style={{
-              flex: 1, textAlign: 'center', padding: '9px', borderRadius: '10px',
-              background: 'linear-gradient(135deg, #E3A857, #C9184A)', color: '#fff',
-              fontWeight: 700, fontSize: '0.85rem', textDecoration: 'none'
-            }}>
+
+          <div style={{ display: "flex", gap: "8px", marginTop: "14px" }}>
+            <a
+              href={data.location.address
+                ? "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(data.location.address)
+                : "#"}
+              target="_blank"
+              rel="noreferrer"
+              style={{
+                flex: 1,
+                textAlign: "center",
+                padding: "9px",
+                borderRadius: "10px",
+                background: "linear-gradient(135deg, #E3A857, #C9184A)",
+                color: "#fff",
+                fontWeight: 700,
+                fontSize: "0.85rem",
+                textDecoration: "none"
+              }}
+            >
               Ouvrir dans Maps
             </a>
+
             <button
-              onClick={() => { setLocLabel(data.location.label || ""); setLocAddress(data.location.address || ""); setEditingLoc(true); }}
-              style={{ padding: '9px 12px', borderRadius: '10px', background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)', color: '#fff', fontSize: '0.85rem' }}
+              onClick={() => {
+                setLocLabel(data.location.label || "");
+                setLocAddress(data.location.address || "");
+                setEditingLoc(true);
+              }}
+              style={{
+                padding: "9px 12px",
+                borderRadius: "10px",
+                background: "rgba(255,255,255,0.12)",
+                border: "1px solid rgba(255,255,255,0.2)",
+                color: "#fff",
+                fontSize: "0.85rem"
+              }}
             >
               Modifier
             </button>
           </div>
         </div>
       ) : (
-        <div className="card">
+        <div className="card" style={{ marginTop: "14px" }}>
           <h3>📍 Notre prochaine destination</h3>
-          <input value={locLabel} onChange={e => setLocLabel(e.target.value)} placeholder="Ex. Restaurant, chez Maman…" />
-          <input value={locAddress} onChange={e => setLocAddress(e.target.value)} placeholder="Adresse ou lieu" />
-          <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-            <button className="primary" onClick={saveLocation}><Check size={15} /> Enregistrer</button>
-            {data.location && <button className="secondary" onClick={() => setEditingLoc(false)}>Annuler</button>}
-            {data.location && <button className="secondary" onClick={clearLocation}><Trash2 size={14} /></button>}
+          <input
+            value={locLabel}
+            onChange={e => setLocLabel(e.target.value)}
+            placeholder="Ex. Restaurant, chez Maman…"
+          />
+          <input
+            value={locAddress}
+            onChange={e => setLocAddress(e.target.value)}
+            placeholder="Adresse ou lieu"
+          />
+
+          <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
+            <button className="primary" onClick={saveLocation}>
+              <Check size={15} /> Enregistrer
+            </button>
+            {data.location && (
+              <button className="secondary" onClick={() => setEditingLoc(false)}>
+                Annuler
+              </button>
+            )}
+            {data.location && (
+              <button className="secondary" onClick={clearLocation}>
+                <Trash2 size={14} />
+              </button>
+            )}
           </div>
         </div>
       )}
-
-      <div className="card">
-        <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Ex. Dîner, anniversaire…" />
-        <input type="date" value={date} onChange={e => setDate(e.target.value)} />
-        <button className="primary" onClick={add}><Plus size={15} /> Ajouter</button>
-      </div>
-      <div className="list">
-        {[...data.events].sort((a, b) => a.date.localeCompare(b.date)).map(e => (
-          <div className="row card" key={e.id}>
-            <Calendar size={18} />
-            <div><b>{e.title}</b><small>{fmtDate(e.date)}</small></div>
-            <button className="icon" onClick={() => save({ ...data, events: data.events.filter(x => x.id !== e.id) })}><Trash2 size={15} /></button>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
@@ -1488,5 +1795,6 @@ function More({ data, save, logout, room, name }) {
     </div>
   );
 }
+
 
 
