@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
 import {
   Heart, Home, MessageCircleHeart, Calendar, Wallet, Gamepad2, BookOpenText,
   Sparkles, Send, Camera, Gift, Check, Copy, LogOut, Users, Clock3,
   Plus, Trash2, Star, RefreshCw, Lock, ArrowRight, X, BellRing, Settings,
-  MapPin, Navigation, CircleHelp, Lightbulb, Dices
+  MapPin
 } from "lucide-react";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -32,7 +33,6 @@ const EMPTY = {
   wishlist: [],
   secrets: [],
   capsules: [],
-  wishCards: [],
   moods: {},
   outingsDone: [],
   challengesDone: []
@@ -127,7 +127,6 @@ function mergeData(raw) {
     wishlist: raw?.wishlist || [],
     secrets: raw?.secrets || [],
     capsules: raw?.capsules || [],
-    wishCards: raw?.wishCards || [],
     moods: raw?.moods || {},
     outingsDone: raw?.outingsDone || [],
     challengesDone: raw?.challengesDone || []
@@ -1525,14 +1524,11 @@ function Games({ data, save, name }) {
       <Title title="Jeux à deux" sub="Riez, parlez et découvrez-vous encore." />
       {mode === "menu" && (
         <div className="grid4" style={{ gridTemplateColumns: '1fr 1fr' }}>
-          <button className="quick" onClick={() => { setMode("truth"); nextCard(); }}>
-            <CircleHelp size={25} strokeWidth={2.2} />
-            <span>Action Vérité</span>
-          </button>
-          <button className="quick" onClick={() => { setMode("outings"); setOutCategory(null); setOutIdea(null); }}>
-            <Lightbulb size={25} strokeWidth={2.2} />
-            <span>Idées de sorties</span>
-          </button>
+          <button className="quick" onClick={() => { setMode("question"); nextQuestion(); }}><Sparkles size={19} /><span>Question du jour</span></button>
+          <button className="quick" onClick={() => { setMode("truth"); nextCard(); }}><MessageCircleHeart size={19} /><span>Action ou Vérité</span></button>
+          <button className="quick" onClick={() => { setMode("wyr"); nextWyr(); }}><Gift size={19} /><span>Tu préfères… ?</span></button>
+          <button className="quick" onClick={() => { setMode("wheel"); setWinner(null); }}><RefreshCw size={19} /><span>Roue des décisions</span></button>
+          <button className="quick" onClick={() => { setMode("outings"); setOutCategory(null); setOutIdea(null); }}><Calendar size={19} /><span>Idées de sorties</span></button>
         </div>
       )}
       {mode === "question" && (
@@ -1548,7 +1544,7 @@ function Games({ data, save, name }) {
       )}
       {mode === "truth" && (
         <div className="game card">
-          <CircleHelp size={25} strokeWidth={2.2} />
+          <MessageCircleHeart size={22} />
           <div className="tag">{card.type.toUpperCase()}</div>
           <h3>{card.text}</h3>
           <textarea value={answer} onChange={e => setAnswer(e.target.value)} placeholder="Votre réponse ou ressenti…" />
@@ -1604,12 +1600,12 @@ function Games({ data, save, name }) {
 
       {mode === "outings" && (
         <div className="game card">
-          <Lightbulb size={25} strokeWidth={2.2} />
+          <Calendar size={22} />
           <div className="tag">IDÉES DE SORTIES</div>
           {!outCategory ? (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', margin: '12px 0' }}>
               {Object.keys(dateIdeasCategories).map(cat => (
-                <button key={cat} className="quick" onClick={() => pickOuting(cat)}><Lightbulb size={20} /><span>{cat}</span></button>
+                <button key={cat} className="quick" onClick={() => pickOuting(cat)}><span>{cat}</span></button>
               ))}
             </div>
           ) : (
@@ -1667,167 +1663,6 @@ function Games({ data, save, name }) {
   );
 }
 
-function WishCardStudio({ data, save, name }) {
-  const templates = [
-    { id: "love", label: "Je t'aime", emoji: "❤️", title: "Pour toi, mon amour", text: "Je voulais simplement te rappeler combien tu comptes pour moi." },
-    { id: "birthday", label: "Anniversaire", emoji: "🎂", title: "Joyeux anniversaire", text: "Que cette nouvelle année de ta vie soit remplie de bonheur et de beaux moments à deux." },
-    { id: "couple", label: "Notre amour", emoji: "💍", title: "Encore un chapitre de nous", text: "Chaque jour avec toi devient un souvenir que je veux garder pour toujours." },
-    { id: "courage", label: "Encouragement", emoji: "🌷", title: "Je crois en toi", text: "Même dans les journées difficiles, souviens-toi que je suis là, avec toi." },
-    { id: "surprise", label: "Surprise", emoji: "✨", title: "Une petite surprise", text: "Ouvre cette carte avec ton plus beau sourire… quelque chose de doux t'attend." }
-  ];
-  const [template, setTemplate] = useState(templates[0]);
-  const [message, setMessage] = useState(templates[0].text);
-  const [recipient, setRecipient] = useState(data.names.partner || "Mon amour");
-  const [musicUrl, setMusicUrl] = useState("");
-  const [photo, setPhoto] = useState("");
-  const [preview, setPreview] = useState(null);
-  const [reply, setReply] = useState("");
-
-  const choose = (item) => {
-    setTemplate(item);
-    setMessage(item.text);
-  };
-
-  const onPhoto = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setPhoto(String(reader.result));
-    reader.readAsDataURL(file);
-    e.target.value = "";
-  };
-
-  const createCard = () => {
-    if (!message.trim()) return;
-    const card = {
-      id: uid(),
-      template: template.id,
-      emoji: template.emoji,
-      title: template.title,
-      recipient: recipient.trim() || "Mon amour",
-      message: message.trim(),
-      photo,
-      musicUrl: musicUrl.trim(),
-      author: name,
-      createdAt: new Date().toISOString(),
-      replies: []
-    };
-    save({ ...data, wishCards: [card, ...(data.wishCards || [])] });
-    setPreview(card);
-    setReply("");
-  };
-
-  const addReply = (card) => {
-    if (!reply.trim()) return;
-    save({
-      ...data,
-      wishCards: (data.wishCards || []).map(c => c.id === card.id
-        ? { ...c, replies: [...(c.replies || []), { id: uid(), author: name, text: reply.trim(), createdAt: new Date().toISOString() }] }
-        : c)
-    });
-    setReply("");
-  };
-
-  const removeCard = (id) => {
-    save({ ...data, wishCards: (data.wishCards || []).filter(c => c.id !== id) });
-    if (preview?.id === id) setPreview(null);
-  };
-
-  return (
-    <div className="card wish-card-studio">
-      <div style={{display:"flex",alignItems:"center",gap:8}}><Gift size={20}/><h3 style={{margin:0}}>💌 Cartes de vœux</h3></div>
-      <p style={{fontSize:".82rem",color:"#8A5568"}}>Crée une petite surprise animée pour ton/ta partenaire.</p>
-
-      <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:7,marginBottom:10}}>
-        {templates.map(item => (
-          <button key={item.id} onClick={() => choose(item)} style={{padding:"9px 7px",borderRadius:13,border: template.id===item.id ? "2px solid #C9184A" : "1px solid #ead9df",background: template.id===item.id ? "#fff0f5" : "#fff",color:"#5b2034"}}>
-            <span style={{fontSize:20}}>{item.emoji}</span><br/><small>{item.label}</small>
-          </button>
-        ))}
-      </div>
-
-      <input value={recipient} onChange={e=>setRecipient(e.target.value)} placeholder="Pour qui ?" />
-      <input value={template.title} readOnly style={{opacity:.75}} />
-      <textarea value={message} onChange={e=>setMessage(e.target.value)} placeholder="Écris ton message…" />
-
-      <label className="secondary" style={{display:"flex",alignItems:"center",justifyContent:"center",gap:7,cursor:"pointer",marginBottom:8}}>
-        <Camera size={15}/> Ajouter une photo
-        <input type="file" accept="image/*" onChange={onPhoto} style={{display:"none"}} />
-      </label>
-      {photo && <img src={photo} alt="Aperçu" style={{width:"100%",maxHeight:180,objectFit:"cover",borderRadius:14,marginBottom:8}} />}
-
-      <input value={musicUrl} onChange={e=>setMusicUrl(e.target.value)} placeholder="Lien d'une musique (optionnel)" />
-      <button className="primary" onClick={createCard}><Gift size={15}/> Créer la carte surprise</button>
-
-      {preview && (
-        <div style={{marginTop:14}}>
-          <div style={{fontSize:".75rem",letterSpacing:".08em",textTransform:"uppercase",color:"#8A5568",marginBottom:6}}>Aperçu</div>
-          <WishCardView card={preview} />
-        </div>
-      )}
-
-      {(data.wishCards || []).length > 0 && <div style={{marginTop:16}}>
-        <h4 style={{margin:"0 0 8px"}}>Nos cartes 💕</h4>
-        {(data.wishCards || []).map(card => (
-          <div key={card.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 0",borderBottom:"1px solid #f0e5e9"}}>
-            <span style={{fontSize:22}}>{card.emoji}</span><span style={{flex:1,fontSize:".85rem"}}>{card.title}<small style={{display:"block",opacity:.55}}>{card.author || "Anonyme"}</small></span>
-            <button className="icon" onClick={()=>setPreview(card)}><Gift size={14}/></button>
-            <button className="icon" onClick={()=>removeCard(card.id)}><Trash2 size={14}/></button>
-          </div>
-        ))}
-      </div>}
-
-      {preview && (
-        <div style={{marginTop:12}}>
-          <textarea value={reply} onChange={e=>setReply(e.target.value)} placeholder="Répondre à cette carte…" />
-          <button className="secondary" onClick={()=>addReply(preview)}><MessageCircleHeart size={15}/> Envoyer la réponse</button>
-          {(preview.replies || []).map(r => <div key={r.id} style={{marginTop:7,padding:8,borderRadius:10,background:"#fff4f7",fontSize:".8rem"}}><b>{r.author}</b> · {r.text}</div>)}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function WishCardView({ card }) {
-  const [opened, setOpened] = useState(false);
-  if (!opened) {
-    return (
-      <button
-        onClick={() => setOpened(true)}
-        aria-label="Ouvrir la carte de vœux"
-        style={{position:"relative",overflow:"hidden",width:"100%",minHeight:300,border:0,borderRadius:24,padding:24,color:"#fff7fa",background:"linear-gradient(145deg,#7d2744,#3a1224 70%,#1f0a15)",boxShadow:"0 18px 35px rgba(67,15,35,.25)",cursor:"pointer"}}
-      >
-        <div style={{position:"absolute",inset:0,background:"radial-gradient(circle at 50% 15%,rgba(255,220,230,.22),transparent 35%)"}} />
-        <div style={{position:"relative",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:250}}>
-          <div style={{fontSize:58,animation:"wishFloat 2.2s ease-in-out infinite"}}>💌</div>
-          <div style={{fontSize:".7rem",letterSpacing:".2em",textTransform:"uppercase",opacity:.72,marginTop:12}}>Une petite surprise</div>
-          <h3 style={{fontFamily:"'Great Vibes','Allura',cursive",fontSize:"2.1rem",fontWeight:400,margin:"12px 0",color:"#f6d6a3"}}>Pour {card.recipient}</h3>
-          <div style={{padding:"9px 18px",borderRadius:999,border:"1px solid rgba(255,255,255,.28)",background:"rgba(255,255,255,.08)"}}>Appuie pour ouvrir ✨</div>
-        </div>
-        <style>{`@keyframes wishFloat{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-7px) scale(1.05)}}`}</style>
-      </button>
-    );
-  }
-
-  return (
-    <div className="wish-card-view" style={{position:"relative",overflow:"hidden",borderRadius:24,padding:"24px 18px",minHeight:300,color:"#fff7fa",background:"linear-gradient(145deg,#7d2744,#3a1224 70%,#1f0a15)",boxShadow:"0 18px 35px rgba(67,15,35,.25)",animation:"wishOpen .55s ease-out"}}>
-      <div style={{position:"absolute",width:180,height:180,right:-70,top:-70,borderRadius:"50%",background:"radial-gradient(circle,rgba(227,168,87,.35),transparent 70%)"}} />
-      <div style={{position:"relative",textAlign:"center"}}>
-        <div style={{fontSize:46,animation:"wishFloat 2.2s ease-in-out infinite"}}>{card.emoji}</div>
-        <div style={{fontSize:".7rem",letterSpacing:".2em",textTransform:"uppercase",opacity:.72}}>Une carte rien que pour toi</div>
-        <h3 style={{fontFamily:"'Great Vibes','Allura',cursive",fontSize:"2.15rem",fontWeight:400,margin:"12px 0 5px",color:"#f6d6a3"}}>{card.title}</h3>
-        <div style={{fontSize:".85rem",opacity:.75}}>Pour {card.recipient}</div>
-        {card.photo && <img src={card.photo} alt="Souvenir" style={{width:"100%",maxHeight:150,objectFit:"cover",borderRadius:15,margin:"15px 0"}} />}
-        <p style={{fontFamily:"Georgia,serif",fontSize:"1.05rem",lineHeight:1.6,margin:"16px 5px"}}>“{card.message}”</p>
-        <div style={{fontSize:".8rem",opacity:.65}}>Avec tout mon amour · {card.author}</div>
-        {card.musicUrl && <a href={card.musicUrl} target="_blank" rel="noreferrer" style={{display:"inline-flex",marginTop:12,color:"#fff",textDecoration:"none",padding:"7px 12px",borderRadius:999,border:"1px solid rgba(255,255,255,.25)"}}>♫ Écouter la musique</a>}
-        <button onClick={()=>setOpened(false)} style={{display:"block",margin:"14px auto 0",padding:"7px 12px",borderRadius:999,border:"1px solid rgba(255,255,255,.2)",background:"rgba(255,255,255,.08)",color:"#fff"}}>Refermer 💌</button>
-      </div>
-      <style>{`@keyframes wishFloat{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-6px) scale(1.05)}} @keyframes wishOpen{0%{opacity:0;transform:scale(.94) translateY(10px)}100%{opacity:1;transform:scale(1) translateY(0)}}`}</style>
-    </div>
-  );
-}
-
 function More({ data, save, logout, room, name }) {
   const [v, setV] = useState(0);
   const toggle = () => save({
@@ -1864,8 +1699,6 @@ function More({ data, save, logout, room, name }) {
   return (
     <div>
       <Title title="Plus pour nous" sub="Des petits détails qui rendent l'histoire spéciale." />
-      <WishCardStudio data={data} save={save} name={name} />
-
       <div className="card verse bigVerse">
         <BookOpenText size={22} />
         <p>« {verses[v][1]} »</p>
