@@ -1,10 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
 import {
   Heart, Home, MessageCircleHeart, Calendar, Wallet, Gamepad2, BookOpenText,
   Sparkles, Send, Camera, Gift, Check, Copy, LogOut, Users, Clock3,
-  Plus, Trash2, Star, RefreshCw, Lock, ArrowRight, X, BellRing, Settings, CircleHelp, Lightbulb, Drama,
-  MapPin, CircleHelp, Lightbulb
+  Plus, Trash2, Star, RefreshCw, Lock, ArrowRight, X, BellRing, Settings,
+  MapPin, Navigation, CircleHelp, Lightbulb, Dices
 } from "lucide-react";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -558,7 +557,7 @@ function Nav({ tab, setTab }) {
     ["chat", "Messages", MessageCircleHeart],
     ["story", "Histoire", BookOpenText],
     ["agenda", "Agenda", Calendar],
-    ["games", "Action Vérité", CircleHelp],
+    ["games", "Jeux", Gamepad2],
     ["more", "Plus", Plus]
   ];
 
