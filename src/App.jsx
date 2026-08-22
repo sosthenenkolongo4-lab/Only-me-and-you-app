@@ -4,7 +4,8 @@ import {
   Heart, Home, MessageCircleHeart, Calendar, Wallet, Gamepad2, BookOpenText,
   Sparkles, Send, Camera, Gift, Check, Copy, LogOut, Users, Clock3,
   Plus, Trash2, Star, RefreshCw, Lock, ArrowRight, X, BellRing, Settings,
-  MapPin
+  MapPin, HelpCircle, Lightbulb, Cake, Gem, PartyPopper, ListTodo,
+  MessageSquareText, Library, Search
 } from "lucide-react";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -35,7 +36,14 @@ const EMPTY = {
   capsules: [],
   moods: {},
   outingsDone: [],
-  challengesDone: []
+  challengesDone: [],
+  packs: {
+    valentineMessages: [],
+    valentineChallengesDone: [],
+    proposal: { date: "", place: "", message: "", askedDate: "" },
+    birthday: { personName: "", date: "", cardText: "", giftIdeas: [], challengesDone: [] },
+    reasons: []
+  }
 };
 
 const dateIdeasCategories = {
@@ -92,6 +100,27 @@ const wouldYouRather = [
 
 const REACTIONS = ["❤️", "😂", "😮", "😢", "👍", "🙏"];
 
+const valentineChallenges = [
+  "Écrire une lettre d'amour à la main (ou façon lettre) à l'autre",
+  "Se remémorer votre tout premier rendez-vous",
+  "Se dire chacun 3 choses qu'on n'a jamais osé dire",
+  "Planifier ensemble un rendez-vous surprise",
+  "Se prendre en photo tous les deux aujourd'hui"
+];
+
+const valentineQuiz = [
+  "Quel est mon souvenir préféré de nous deux ?",
+  "Qu'est-ce qui t'a fait craquer chez moi au début ?",
+  "Si notre amour était une chanson, laquelle serait-ce ?"
+];
+
+const birthdayChallenges = [
+  "Préparer une surprise pour son réveil",
+  "Lui écrire 5 raisons d'être fier/fière d'elle/lui cette année",
+  "Organiser un moment rien qu'à deux aujourd'hui",
+  "Lui offrir un compliment devant quelqu'un d'autre"
+];
+
 const uid = () => crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
 const fmtDate = d => new Date(d + "T00:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
 
@@ -129,7 +158,13 @@ function mergeData(raw) {
     capsules: raw?.capsules || [],
     moods: raw?.moods || {},
     outingsDone: raw?.outingsDone || [],
-    challengesDone: raw?.challengesDone || []
+    challengesDone: raw?.challengesDone || [],
+    packs: {
+      ...EMPTY.packs,
+      ...(safeRaw.packs || {}),
+      proposal: { ...EMPTY.packs.proposal, ...((safeRaw.packs || {}).proposal || {}) },
+      birthday: { ...EMPTY.packs.birthday, ...((safeRaw.packs || {}).birthday || {}) }
+    }
   };
 }
 
@@ -166,6 +201,7 @@ export default function App() {
   const [tab, setTab] = useState("home");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [showPacks, setShowPacks] = useState(false);
 
   useEffect(() => { dataRef.current = data; }, [data]);
 
@@ -315,6 +351,17 @@ export default function App() {
         {tab === "games" && <Games data={data} save={save} name={name} />}
         {tab === "more" && <More data={data} save={save} logout={logout} room={room} name={name} />}
       </main>
+      <button
+        className="fab-packs"
+        onClick={() => setShowPacks(true)}
+        title="Packs spéciaux"
+        aria-label="Ouvrir les packs spéciaux"
+      >
+        <Plus size={24} />
+      </button>
+      {showPacks && (
+        <PacksModal data={data} save={save} name={name} setTab={setTab} onClose={() => setShowPacks(false)} />
+      )}
       <Nav tab={tab} setTab={setTab} />
     </Shell>
   );
@@ -536,12 +583,38 @@ function Shell({ children }) {
           padding-bottom: 105px !important;
         }
 
+        /* Bouton flottant "+" pour les packs spéciaux — cercle séparé, façon photo de référence */
+        .app > button.fab-packs {
+          position: fixed !important;
+          right: 14px !important;
+          bottom: 96px !important;
+          z-index: 1001 !important;
+          width: 52px !important;
+          height: 52px !important;
+          border-radius: 50% !important;
+          border: 1px solid rgba(255,255,255,.30) !important;
+          background: linear-gradient(135deg, rgba(75,25,48,.94), rgba(35,12,25,.96)) !important;
+          color: #fff7fa !important;
+          display: flex !important;
+          align-items: center !important;
+          justify-content: center !important;
+          box-shadow: 0 12px 30px rgba(55, 10, 30, .30), inset 0 1px 0 rgba(255,255,255,.16) !important;
+          backdrop-filter: blur(18px) saturate(130%) !important;
+          -webkit-backdrop-filter: blur(18px) saturate(130%) !important;
+          cursor: pointer !important;
+          transition: transform .18s ease !important;
+        }
+        .app > button.fab-packs:active { transform: scale(.92) !important; }
+
         @media (min-width: 700px) {
           .app > nav {
             left: 50% !important;
             right: auto !important;
             width: min(680px, calc(100% - 36px)) !important;
             transform: translateX(-50%) !important;
+          }
+          .app > button.fab-packs {
+            right: calc(50% - min(680px, calc(100% - 36px)) / 2 - 62px) !important;
           }
         }
       `}</style>
@@ -610,6 +683,12 @@ function HomeScreen({ data, name, role, setName, setTab, save }) {
   const myName = name || (role === "you" ? data.names.you : data.names.partner) || "Moi";
 
   const verse = verses[totalDays % verses.length];
+
+  // Anniversaire de couple : même jour/mois que la date de départ, mais une année plus tard
+  const isAnniversaryToday = totalDays > 0
+    && now.getDate() === start.getDate()
+    && now.getMonth() === start.getMonth()
+    && now.getFullYear() > start.getFullYear();
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const otherRole = role === "you" ? "partner" : "you";
@@ -703,6 +782,36 @@ function HomeScreen({ data, name, role, setName, setTab, save }) {
             <button onClick={handleSaveDate} className="primary" style={{ marginTop: '6px', padding: '4px 8px', fontSize: '0.8rem' }}>Enregistrer</button>
           </div>
         )}
+
+        {isAnniversaryToday && (
+          <div style={{ position: 'relative', marginTop: '14px', overflow: 'visible' }}>
+            <style>{`
+              @keyframes annivFloat {
+                0% { transform: translateY(0) scale(1); opacity: 1; }
+                100% { transform: translateY(-46px) scale(1.35); opacity: 0; }
+              }
+              .anniv-heart {
+                position: absolute;
+                bottom: 6px;
+                font-size: 1.3rem;
+                animation: annivFloat 2.4s ease-in infinite;
+                pointer-events: none;
+              }
+            `}</style>
+            <div style={{
+              background: 'linear-gradient(135deg,#ff9eb5,#ffd08a)', color: '#4a1030',
+              padding: '10px 18px', borderRadius: '14px', fontWeight: 700,
+              display: 'inline-flex', alignItems: 'center', gap: '8px', boxShadow: '0 8px 20px rgba(255,120,150,0.35)'
+            }}>
+              <PartyPopper size={16} /> Joyeux anniversaire de couple !
+            </div>
+            {[...Array(8)].map((_, i) => (
+              <span key={i} className="anniv-heart" style={{ left: `${6 + i * 11}%`, animationDelay: `${i * 0.3}s` }}>
+                {i % 2 === 0 ? "💖" : "✨"}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="today card">
@@ -747,15 +856,44 @@ function Quick({ icon: I, text, onClick }) {
   return <button className="quick" onClick={onClick}><I size={19} /><span>{text}</span></button>;
 }
 
+const cardThemes = [
+  { emojis: "🔥  💬  😘", bg: "linear-gradient(160deg,#ffe1ea,#ffc2d6)" },
+  { emojis: "✨  💌  🎵", bg: "linear-gradient(160deg,#ffe9c7,#ffd08a)" },
+  { emojis: "❤️  😍  🌹", bg: "linear-gradient(160deg,#ffd6e0,#ff9eb5)" }
+];
+
 function Chat({ data, name, save }) {
   const [text, setText] = useState("");
+  const [menuFor, setMenuFor] = useState(null);
+  const [showCard, setShowCard] = useState(false);
+  const [cardText, setCardText] = useState("");
+  const [cardTheme, setCardTheme] = useState(0);
+
   const send = () => {
     if (!text.trim()) return;
     save({
       ...data,
-      messages: [...data.messages, { id: uid(), from: name, text: text.trim(), date: new Date().toISOString() }]
+      messages: [...data.messages, { id: uid(), from: name, text: text.trim(), date: new Date().toISOString(), type: "text" }]
     });
     setText("");
+  };
+
+  const sendCard = () => {
+    if (!cardText.trim()) return;
+    save({
+      ...data,
+      messages: [...data.messages, {
+        id: uid(), from: name, date: new Date().toISOString(),
+        type: "card", cardText: cardText.trim(), theme: cardTheme
+      }]
+    });
+    setCardText("");
+    setShowCard(false);
+  };
+
+  const deleteMessage = (id) => {
+    save({ ...data, messages: data.messages.map(m => m.id === id ? { ...m, deleted: true } : m) });
+    setMenuFor(null);
   };
 
   return (
@@ -764,13 +902,93 @@ function Chat({ data, name, save }) {
       <div className="chat card">
         {data.messages.length === 0 && <div className="empty">Commencez votre conversation ❤️</div>}
         {data.messages.map(m => (
-          <div className={"msg " + (m.from === name ? "mine" : "theirs")} key={m.id}>
-            <span>{m.text}</span>
-            <small>{m.from} · {new Date(m.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</small>
+          <div
+            className={"msg " + (m.from === name ? "mine" : "theirs")}
+            key={m.id}
+            style={{ position: 'relative' }}
+            onClick={() => m.from === name && !m.deleted && setMenuFor(menuFor === m.id ? null : m.id)}
+          >
+            {m.deleted ? (
+              <span style={{ fontStyle: 'italic', opacity: 0.55, display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                <Trash2 size={12} /> Message supprimé
+              </span>
+            ) : m.type === "card" ? (
+              <div style={{
+                background: cardThemes[m.theme || 0].bg,
+                borderRadius: '14px',
+                padding: '14px 14px 10px',
+                minWidth: '190px',
+                boxShadow: '0 6px 16px rgba(201,24,74,0.18)',
+                color: '#4a1030'
+              }}>
+                <div style={{ fontSize: '1.15rem', marginBottom: '8px' }}>{cardThemes[m.theme || 0].emojis}</div>
+                <div style={{ fontWeight: 600, whiteSpace: 'pre-wrap' }}>{m.cardText}</div>
+                <div style={{ fontSize: '0.68rem', opacity: 0.6, marginTop: '10px' }}>— {m.from}</div>
+              </div>
+            ) : (
+              <span>{m.text}</span>
+            )}
+            <small>{new Date(m.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</small>
+
+            {menuFor === m.id && (
+              <button
+                onClick={e => { e.stopPropagation(); deleteMessage(m.id); }}
+                style={{
+                  position: 'absolute', top: '-12px', right: 0,
+                  background: '#fff', border: '1px solid #eee', borderRadius: '999px',
+                  padding: '4px 10px', fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: '4px',
+                  color: '#e53e3e', boxShadow: '0 3px 8px rgba(0,0,0,0.14)', cursor: 'pointer', zIndex: 5
+                }}
+              >
+                <Trash2 size={12} /> Supprimer
+              </button>
+            )}
           </div>
         ))}
       </div>
+
+      {showCard && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(20,5,15,0.6)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
+          onClick={() => setShowCard(false)}
+        >
+          <div
+            className="card"
+            style={{ maxWidth: '340px', width: '100%', background: cardThemes[cardTheme].bg, position: 'relative' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setShowCard(false)}
+              style={{ position: 'absolute', top: '10px', right: '10px', background: 'none', border: 'none', color: '#4a1030', opacity: 0.6 }}
+            >
+              <X size={18} />
+            </button>
+            <div style={{ fontSize: '1.5rem', textAlign: 'center', margin: '4px 0 12px' }}>{cardThemes[cardTheme].emojis}</div>
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginBottom: '12px' }}>
+              {cardThemes.map((t, i) => (
+                <button
+                  key={i}
+                  onClick={() => setCardTheme(i)}
+                  style={{ width: 28, height: 28, borderRadius: '50%', background: t.bg, border: cardTheme === i ? '2px solid #C9184A' : '1px solid #fff', cursor: 'pointer' }}
+                />
+              ))}
+            </div>
+            <textarea
+              value={cardText}
+              onChange={e => setCardText(e.target.value)}
+              placeholder="Écris ta carte vœux…"
+              style={{ minHeight: '100px', background: 'rgba(255,255,255,0.5)' }}
+            />
+            <div style={{ fontSize: '0.7rem', opacity: 0.6, margin: '4px 0 12px', color: '#4a1030' }}>Signé : {name}</div>
+            <button className="primary" onClick={sendCard} style={{ width: '100%' }}>Envoyer</button>
+          </div>
+        </div>
+      )}
+
       <div className="composer">
+        <button onClick={() => setShowCard(true)} title="Carte vœux" style={{ background: 'none', border: 'none', color: '#C9184A', padding: '0 6px', cursor: 'pointer' }}>
+          <Gift size={20} />
+        </button>
         <input value={text} onChange={e => setText(e.target.value)} onKeyDown={e => e.key === "Enter" && send()} placeholder="Écris quelque chose de doux…" />
         <button onClick={send}><Send size={17} /></button>
       </div>
@@ -1525,10 +1743,10 @@ function Games({ data, save, name }) {
       {mode === "menu" && (
         <div className="grid4" style={{ gridTemplateColumns: '1fr 1fr' }}>
           <button className="quick" onClick={() => { setMode("question"); nextQuestion(); }}><Sparkles size={19} /><span>Question du jour</span></button>
-          <button className="quick" onClick={() => { setMode("truth"); nextCard(); }}><MessageCircleHeart size={19} /><span>Action ou Vérité</span></button>
+          <button className="quick" onClick={() => { setMode("truth"); nextCard(); }}><HelpCircle size={19} /><span>Action ou Vérité</span></button>
           <button className="quick" onClick={() => { setMode("wyr"); nextWyr(); }}><Gift size={19} /><span>Tu préfères… ?</span></button>
           <button className="quick" onClick={() => { setMode("wheel"); setWinner(null); }}><RefreshCw size={19} /><span>Roue des décisions</span></button>
-          <button className="quick" onClick={() => { setMode("outings"); setOutCategory(null); setOutIdea(null); }}><Calendar size={19} /><span>Idées de sorties</span></button>
+          <button className="quick" onClick={() => { setMode("outings"); setOutCategory(null); setOutIdea(null); }}><Lightbulb size={19} /><span>Idées de sorties</span></button>
         </div>
       )}
       {mode === "question" && (
@@ -1544,7 +1762,7 @@ function Games({ data, save, name }) {
       )}
       {mode === "truth" && (
         <div className="game card">
-          <MessageCircleHeart size={22} />
+          <HelpCircle size={22} />
           <div className="tag">{card.type.toUpperCase()}</div>
           <h3>{card.text}</h3>
           <textarea value={answer} onChange={e => setAnswer(e.target.value)} placeholder="Votre réponse ou ressenti…" />
@@ -1600,7 +1818,7 @@ function Games({ data, save, name }) {
 
       {mode === "outings" && (
         <div className="game card">
-          <Calendar size={22} />
+          <Lightbulb size={22} />
           <div className="tag">IDÉES DE SORTIES</div>
           {!outCategory ? (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', margin: '12px 0' }}>
@@ -1796,5 +2014,294 @@ function More({ data, save, logout, room, name }) {
   );
 }
 
+function PacksModal({ data, save, name, setTab, onClose }) {
+  const [view, setView] = useState("menu");
+  const todayObj = new Date();
+  const isFeb14 = todayObj.getMonth() === 1 && todayObj.getDate() === 14;
 
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, zIndex: 3000, background: 'rgba(20,5,15,0.62)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
+      onClick={onClose}
+    >
+      <div
+        className="card"
+        style={{ width: '100%', maxWidth: '480px', maxHeight: '88vh', overflowY: 'auto', borderRadius: '22px 22px 0 0', margin: 0, position: 'relative' }}
+        onClick={e => e.stopPropagation()}
+      >
+        <button onClick={onClose} style={{ position: 'absolute', top: '12px', right: '12px', background: 'none', border: 'none', opacity: 0.6, cursor: 'pointer' }}>
+          <X size={20} />
+        </button>
 
+        {view === "menu" && (
+          <>
+            <h2 style={{ marginTop: 0 }}>✨ Packs spéciaux</h2>
+            <p style={{ fontSize: '0.85rem', color: '#8A5568', marginTop: '-6px' }}>Des expériences prêtes à l'emploi pour marquer les grandes occasions.</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '14px' }}>
+              <PackTile icon={Heart} title="Pack Saint-Valentin" desc={isFeb14 ? "Disponible aujourd'hui 💗" : "S'active chaque 14 février"} onClick={() => setView("valentine")} locked={!isFeb14} />
+              <PackTile icon={Gem} title="Pack Demande en mariage" desc="Compte à rebours, animation et souvenir de la demande" onClick={() => setView("proposal")} />
+              <PackTile icon={Cake} title="Pack Anniversaire" desc="Carte, défis, idées cadeaux et capsule surprise" onClick={() => setView("birthday")} />
+              <PackTile icon={MessageSquareText} title="100 raisons de t'aimer" desc="Un petit livre d'amour numérique à construire à deux" onClick={() => setView("reasons")} />
+            </div>
+          </>
+        )}
+
+        {view === "valentine" && <PackValentine data={data} save={save} name={name} setTab={setTab} onClose={onClose} isFeb14={isFeb14} back={() => setView("menu")} />}
+        {view === "proposal" && <PackProposal data={data} save={save} name={name} setTab={setTab} onClose={onClose} back={() => setView("menu")} />}
+        {view === "birthday" && <PackBirthday data={data} save={save} name={name} setTab={setTab} onClose={onClose} back={() => setView("menu")} />}
+        {view === "reasons" && <PackReasons data={data} save={save} name={name} back={() => setView("menu")} />}
+      </div>
+    </div>
+  );
+}
+
+function PackTile({ icon: I, title, desc, onClick, locked }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 14px', borderRadius: '14px', border: '1px solid #f1dbe4', background: locked ? '#faf6f7' : '#fff', textAlign: 'left', cursor: 'pointer' }}
+    >
+      <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#fdf2f8', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: '#C9184A' }}>
+        <I size={20} />
+      </div>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontWeight: 700, fontSize: '0.92rem' }}>{title}</div>
+        <div style={{ fontSize: '0.76rem', color: '#8A5568' }}>{desc}</div>
+      </div>
+      <ArrowRight size={16} style={{ opacity: 0.4 }} />
+    </button>
+  );
+}
+
+function PackValentine({ data, save, name, setTab, onClose, isFeb14, back }) {
+  const [msg, setMsg] = useState("");
+  const [capsuleText, setCapsuleText] = useState("");
+  const [quizAnswer, setQuizAnswer] = useState("");
+  const [quizIdx, setQuizIdx] = useState(0);
+
+  const sendMessage = () => {
+    if (!msg.trim()) return;
+    save({ ...data, packs: { ...data.packs, valentineMessages: [{ id: uid(), text: msg.trim(), author: name, date: new Date().toISOString() }, ...data.packs.valentineMessages] } });
+    setMsg("");
+  };
+
+  const toggleChallenge = (c) => {
+    const done = data.packs.valentineChallengesDone.includes(c);
+    save({ ...data, packs: { ...data.packs, valentineChallengesDone: done ? data.packs.valentineChallengesDone.filter(x => x !== c) : [...data.packs.valentineChallengesDone, c] } });
+  };
+
+  const saveQuizAnswer = () => {
+    if (!quizAnswer.trim()) return;
+    save({ ...data, gameAnswers: [{ id: uid(), prompt: "💗 " + valentineQuiz[quizIdx], answer: quizAnswer, date: new Date().toISOString(), author: name, comments: [] }, ...data.gameAnswers] });
+    setQuizAnswer("");
+    setQuizIdx((quizIdx + 1) % valentineQuiz.length);
+  };
+
+  const sealCapsule = () => {
+    if (!capsuleText.trim()) return;
+    const nextYear = new Date(); nextYear.setFullYear(nextYear.getFullYear() + 1);
+    save({ ...data, capsules: [{ id: uid(), text: capsuleText.trim(), unlockDate: nextYear.toISOString().slice(0, 10), author: name, tag: "valentine" }, ...data.capsules] });
+    setCapsuleText("");
+  };
+
+  if (!isFeb14) {
+    return (
+      <div>
+        <button onClick={back} style={{ background: 'none', border: 'none', color: '#C9184A', marginBottom: '10px', cursor: 'pointer' }}>← Retour</button>
+        <div style={{ textAlign: 'center', padding: '20px 10px' }}>
+          <Heart size={34} color="#C9184A" fill="#C9184A" />
+          <h3>Pack Saint-Valentin</h3>
+          <p style={{ fontSize: '0.85rem', color: '#8A5568' }}>Ce pack s'active automatiquement chaque 14 février pour une expérience 100% romantique. Revenez ce jour-là 💗</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <button onClick={back} style={{ background: 'none', border: 'none', color: '#C9184A', marginBottom: '10px', cursor: 'pointer' }}>← Retour</button>
+      <h3 style={{ margin: '0 0 4px' }}>💗 Pack Saint-Valentin</h3>
+      <p style={{ fontSize: '0.8rem', color: '#8A5568', marginTop: 0 }}>Joyeuse Saint-Valentin ! Voici votre expérience du jour.</p>
+
+      <div className="card">
+        <h4 style={{ margin: '0 0 8px' }}>💌 Message d'amour du jour</h4>
+        <textarea value={msg} onChange={e => setMsg(e.target.value)} placeholder="Écris un mot doux pour aujourd'hui…" />
+        <button className="primary" onClick={sendMessage} style={{ marginTop: '6px' }}>Envoyer</button>
+        {data.packs.valentineMessages.slice(0, 4).map(m => (
+          <div key={m.id} style={{ fontSize: '0.82rem', marginTop: '8px', borderTop: '1px solid #f3e6ea', paddingTop: '8px' }}>
+            <b>{m.author}</b> : {m.text}
+          </div>
+        ))}
+      </div>
+
+      <div className="card">
+        <h4 style={{ margin: '0 0 8px' }}>🎯 Défis du couple</h4>
+        {valentineChallenges.map(c => (
+          <div key={c} style={{ display: 'flex', gap: '8px', alignItems: 'center', padding: '5px 0' }}>
+            <button onClick={() => toggleChallenge(c)} style={{ background: 'none', border: 'none', padding: 0 }}>
+              {data.packs.valentineChallengesDone.includes(c) ? <Check size={16} color="#22c55e" /> : <span style={{ width: 16, height: 16, borderRadius: '50%', border: '1.5px solid #ccc', display: 'inline-block' }} />}
+            </button>
+            <span style={{ flex: 1, fontSize: '0.85rem', textDecoration: data.packs.valentineChallengesDone.includes(c) ? 'line-through' : 'none', opacity: data.packs.valentineChallengesDone.includes(c) ? 0.5 : 1 }}>{c}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="card">
+        <h4 style={{ margin: '0 0 8px' }}>🎲 Petit jeu : le quiz de l'amour</h4>
+        <p style={{ fontSize: '0.85rem', fontWeight: 600 }}>{valentineQuiz[quizIdx]}</p>
+        <textarea value={quizAnswer} onChange={e => setQuizAnswer(e.target.value)} placeholder="Ta réponse…" />
+        <button className="primary" onClick={saveQuizAnswer} style={{ marginTop: '6px' }}>Garder la réponse</button>
+      </div>
+
+      <div className="card">
+        <h4 style={{ margin: '0 0 8px' }}>📷 Souvenir spécial</h4>
+        <p style={{ fontSize: '0.8rem', color: '#8A5568' }}>Ajoutez une photo souvenir de votre Saint-Valentin dans votre histoire.</p>
+        <button className="secondary" onClick={() => { onClose(); setTab('story'); }}>Aller ajouter une photo</button>
+      </div>
+
+      <div className="card">
+        <h4 style={{ margin: '0 0 8px' }}>⏳ Capsule « ouvre ce message plus tard »</h4>
+        <p style={{ fontSize: '0.78rem', color: '#8A5568' }}>Se déverrouille automatiquement le 14 février prochain.</p>
+        <textarea value={capsuleText} onChange={e => setCapsuleText(e.target.value)} placeholder="Le message à découvrir l'an prochain…" />
+        <button className="primary" onClick={sealCapsule} style={{ marginTop: '6px' }}><Clock3 size={15} /> Sceller</button>
+      </div>
+    </div>
+  );
+}
+
+function PackProposal({ data, save, name, setTab, onClose, back }) {
+  const p = data.packs.proposal;
+  const [dateVal, setDateVal] = useState(p.date || "");
+  const [place, setPlace] = useState(p.place || "");
+  const [message, setMessage] = useState(p.message || "");
+  const [showAnim, setShowAnim] = useState(false);
+  const [now, setNow] = useState(new Date());
+
+  useEffect(() => { const t = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(t); }, []);
+
+  const savePlan = () => save({ ...data, packs: { ...data.packs, proposal: { ...p, date: dateVal, place, message } } });
+
+  const target = dateVal ? new Date(dateVal + "T00:00:00") : null;
+  const diff = target ? Math.max(0, target - now) : 0;
+  const days = target ? Math.floor(diff / 86400000) : null;
+
+  const confirmAsked = () => {
+    save({
+      ...data,
+      packs: { ...data.packs, proposal: { ...p, date: dateVal, place, message, askedDate: new Date().toISOString() } },
+      notes: [{ id: uid(), text: `💍 Notre demande en mariage — ${place || "un lieu inoubliable"} : ${message || "un oui pour la vie."}`, date: new Date().toISOString(), author: name, reactions: [] }, ...data.notes]
+    });
+    setShowAnim(false);
+  };
+
+  return (
+    <div>
+      <button onClick={back} style={{ background: 'none', border: 'none', color: '#C9184A', marginBottom: '10px', cursor: 'pointer' }}>← Retour</button>
+      <h3 style={{ margin: '0 0 4px' }}>💍 Pack Demande en mariage</h3>
+      <p style={{ fontSize: '0.8rem', color: '#8A5568', marginTop: 0 }}>Préparez et gardez le souvenir du grand moment.</p>
+
+      <div className="card">
+        <h4 style={{ margin: '0 0 8px' }}>📅 Date, lieu & message</h4>
+        <input type="date" value={dateVal} onChange={e => setDateVal(e.target.value)} style={{ marginBottom: '8px' }} />
+        <input value={place} onChange={e => setPlace(e.target.value)} placeholder="Lieu prévu…" style={{ marginBottom: '8px' }} />
+        <textarea value={message} onChange={e => setMessage(e.target.value)} placeholder="Le message que tu veux dire…" />
+        <button className="primary" onClick={savePlan} style={{ marginTop: '6px' }}>Enregistrer</button>
+      </div>
+
+      {dateVal && !p.askedDate && (
+        <div className="card" style={{ textAlign: 'center' }}>
+          <h4 style={{ margin: '0 0 8px' }}>⏳ Compte à rebours</h4>
+          <div style={{ fontSize: '1.8rem', fontWeight: 800, color: '#C9184A' }}>{days}</div>
+          <div style={{ fontSize: '0.75rem', color: '#8A5568' }}>jour(s) avant le grand moment</div>
+        </div>
+      )}
+
+      {!p.askedDate ? (
+        <button className="primary" onClick={() => setShowAnim(true)} style={{ width: '100%', marginTop: '6px' }}><Gem size={16} /> Faire la demande maintenant</button>
+      ) : (
+        <div className="card" style={{ textAlign: 'center', background: '#fdf2f8' }}>
+          <Gem size={26} color="#C9184A" />
+          <p style={{ fontWeight: 700 }}>Elle/il a dit oui ! 💍</p>
+          <p style={{ fontSize: '0.8rem', color: '#8A5568' }}>Conservé dans votre Histoire.</p>
+        </div>
+      )}
+
+      <div className="card">
+        <h4 style={{ margin: '0 0 8px' }}>📷 Photos & souvenirs</h4>
+        <p style={{ fontSize: '0.8rem', color: '#8A5568' }}>Ajoutez vos photos de ce moment dans votre histoire commune.</p>
+        <button className="secondary" onClick={() => { onClose(); setTab('story'); }}>Aller ajouter une photo</button>
+      </div>
+
+      {showAnim && (
+        <div style={{ position: 'fixed', inset: 0, background: 'linear-gradient(160deg,#4a1030,#C9184A)', zIndex: 4000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#fff', padding: '24px', textAlign: 'center' }}>
+          <style>{`
+            @keyframes ringFloat { 0%{transform:translateY(0) rotate(0deg);} 50%{transform:translateY(-14px) rotate(8deg);} 100%{transform:translateY(0) rotate(0deg);} }
+            .ring-anim { animation: ringFloat 1.6s ease-in-out infinite; }
+          `}</style>
+          <div className="ring-anim"><Gem size={54} /></div>
+          <h2 style={{ margin: '16px 0 8px' }}>Un moment inoubliable…</h2>
+          <p style={{ maxWidth: '320px', opacity: 0.9 }}>{message || "Ce jour restera gravé pour toujours."}</p>
+          <div style={{ display: 'flex', gap: '10px', marginTop: '24px' }}>
+            <button className="primary" onClick={confirmAsked}>💍 Oui !</button>
+            <button className="secondary" onClick={() => setShowAnim(false)}>Fermer</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PackBirthday({ data, save, name, setTab, onClose, back }) {
+  const b = data.packs.birthday;
+  const [personName, setPersonName] = useState(b.personName || "");
+  const [dateVal, setDateVal] = useState(b.date || "");
+  const [cardText, setCardText] = useState(b.cardText || "");
+  const [giftInput, setGiftInput] = useState("");
+  const [capsuleText, setCapsuleText] = useState("");
+
+  const savePlan = () => save({ ...data, packs: { ...data.packs, birthday: { ...b, personName, date: dateVal, cardText } } });
+
+  const addGift = () => {
+    if (!giftInput.trim()) return;
+    save({ ...data, packs: { ...data.packs, birthday: { ...b, giftIdeas: [...b.giftIdeas, { id: uid(), text: giftInput.trim() }] } } });
+    setGiftInput("");
+  };
+  const removeGift = (id) => save({ ...data, packs: { ...data.packs, birthday: { ...b, giftIdeas: b.giftIdeas.filter(g => g.id !== id) } } });
+
+  const toggleChallenge = (c) => {
+    const done = b.challengesDone.includes(c);
+    save({ ...data, packs: { ...data.packs, birthday: { ...b, challengesDone: done ? b.challengesDone.filter(x => x !== c) : [...b.challengesDone, c] } } });
+  };
+
+  const sealCapsule = () => {
+    if (!capsuleText.trim() || !dateVal) return;
+    const nextYear = new Date(dateVal + "T00:00:00"); nextYear.setFullYear(nextYear.getFullYear() + 1);
+    save({ ...data, capsules: [{ id: uid(), text: capsuleText.trim(), unlockDate: nextYear.toISOString().slice(0, 10), author: name, tag: "birthday" }, ...data.capsules] });
+    setCapsuleText("");
+  };
+
+  const now = new Date();
+  let daysLeft = null;
+  if (dateVal) {
+    const [, m, d] = dateVal.split("-").map(Number);
+    let next = new Date(now.getFullYear(), m - 1, d);
+    if (next < now) next = new Date(now.getFullYear() + 1, m - 1, d);
+    daysLeft = Math.ceil((next - now) / 86400000);
+  }
+
+  return (
+    <div>
+      <button onClick={back} style={{ background: 'none', border: 'none', color: '#C9184A', marginBottom: '10px', cursor: 'pointer' }}>← Retour</button>
+      <h3 style={{ margin: '0 0 4px' }}>🎂 Pack Anniversaire</h3>
+
+      <div className="card">
+        <h4 style={{ margin: '0 0 8px' }}>🎉 Infos</h4>
+        <input value={personName} onChange={e => setPersonName(e.target.value)} placeholder="Qui fête son anniversaire ?" style={{ marginBottom: '8px' }} />
+        <input type="date" value={dateVal} onChange={e => setDateVal(e.target.value)} style={{ marginBottom: '8px' }} />
+        <textarea value={cardText} onChange={e => setCardText(e.target.value)} placeholder="Message de la carte d'anniversaire…" />
+        <button className="primary" onClick={savePlan} style={{ marginTop: '6px' }}>Enregistrer</button>
+        {daysLeft !== null && <div style={{ marginTop: '8px', fontSize: '0.85rem', color: '#8A5568' }}>⏳ {daysLeft} jour(s) avant le jour J</div>}
+      </div>
+
+      {cardText && (
+        <div className="card" style={{ background: 'linear-gradient(160deg,#ffe1ea,#ffd08a)
