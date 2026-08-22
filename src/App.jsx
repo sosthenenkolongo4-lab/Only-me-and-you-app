@@ -349,16 +349,8 @@ export default function App() {
         {tab === "agenda" && <Agenda data={data} save={save} />}
         {tab === "money" && <Money data={data} save={save} />}
         {tab === "games" && <Games data={data} save={save} name={name} />}
-        {tab === "more" && <More data={data} save={save} logout={logout} room={room} name={name} />}
+        {tab === "more" && <More data={data} save={save} logout={logout} room={room} name={name} onOpenPacks={() => setShowPacks(true)} />}
       </main>
-      <button
-        className="fab-packs"
-        onClick={() => setShowPacks(true)}
-        title="Packs spéciaux"
-        aria-label="Ouvrir les packs spéciaux"
-      >
-        <Plus size={24} />
-      </button>
       {showPacks && (
         <PacksModal data={data} save={save} name={name} setTab={setTab} onClose={() => setShowPacks(false)} />
       )}
@@ -583,40 +575,6 @@ function Shell({ children }) {
           padding-bottom: 105px !important;
         }
 
-        /* Bouton flottant "+" pour les packs spéciaux — cercle séparé, façon photo de référence */
-        .app > button.fab-packs {
-          position: fixed !important;
-          right: 14px !important;
-          bottom: 96px !important;
-          z-index: 1001 !important;
-          width: 52px !important;
-          height: 52px !important;
-          border-radius: 50% !important;
-          border: 1px solid rgba(255,255,255,.30) !important;
-          background: linear-gradient(135deg, rgba(75,25,48,.94), rgba(35,12,25,.96)) !important;
-          color: #fff7fa !important;
-          display: flex !important;
-          align-items: center !important;
-          justify-content: center !important;
-          box-shadow: 0 12px 30px rgba(55, 10, 30, .30), inset 0 1px 0 rgba(255,255,255,.16) !important;
-          backdrop-filter: blur(18px) saturate(130%) !important;
-          -webkit-backdrop-filter: blur(18px) saturate(130%) !important;
-          cursor: pointer !important;
-          transition: transform .18s ease !important;
-        }
-        .app > button.fab-packs:active { transform: scale(.92) !important; }
-
-        @media (min-width: 700px) {
-          .app > nav {
-            left: 50% !important;
-            right: auto !important;
-            width: min(680px, calc(100% - 36px)) !important;
-            transform: translateX(-50%) !important;
-          }
-          .app > button.fab-packs {
-            right: calc(50% - min(680px, calc(100% - 36px)) / 2 - 62px) !important;
-          }
-        }
       `}</style>
       {children}
     </div>
@@ -865,30 +823,11 @@ const cardThemes = [
 function Chat({ data, name, save }) {
   const [text, setText] = useState("");
   const [menuFor, setMenuFor] = useState(null);
-  const [showCard, setShowCard] = useState(false);
-  const [cardText, setCardText] = useState("");
-  const [cardTheme, setCardTheme] = useState(0);
 
   const send = () => {
     if (!text.trim()) return;
-    save({
-      ...data,
-      messages: [...data.messages, { id: uid(), from: name, text: text.trim(), date: new Date().toISOString(), type: "text" }]
-    });
+    save({ ...data, messages: [...data.messages, { id: uid(), from: name, text: text.trim(), date: new Date().toISOString(), type: "text" }] });
     setText("");
-  };
-
-  const sendCard = () => {
-    if (!cardText.trim()) return;
-    save({
-      ...data,
-      messages: [...data.messages, {
-        id: uid(), from: name, date: new Date().toISOString(),
-        type: "card", cardText: cardText.trim(), theme: cardTheme
-      }]
-    });
-    setCardText("");
-    setShowCard(false);
   };
 
   const deleteMessage = (id) => {
@@ -902,95 +841,29 @@ function Chat({ data, name, save }) {
       <div className="chat card">
         {data.messages.length === 0 && <div className="empty">Commencez votre conversation ❤️</div>}
         {data.messages.map(m => (
-          <div
-            className={"msg " + (m.from === name ? "mine" : "theirs")}
-            key={m.id}
-            style={{ position: 'relative' }}
-            onClick={() => m.from === name && !m.deleted && setMenuFor(menuFor === m.id ? null : m.id)}
-          >
+          <div className={"msg " + (m.from === name ? "mine" : "theirs")} key={m.id} style={{ position: "relative" }}>
             {m.deleted ? (
-              <span style={{ fontStyle: 'italic', opacity: 0.55, display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
-                <Trash2 size={12} /> Message supprimé
-              </span>
-            ) : m.type === "card" ? (
-              <div style={{
-                background: cardThemes[m.theme || 0].bg,
-                borderRadius: '14px',
-                padding: '14px 14px 10px',
-                minWidth: '190px',
-                boxShadow: '0 6px 16px rgba(201,24,74,0.18)',
-                color: '#4a1030'
-              }}>
-                <div style={{ fontSize: '1.15rem', marginBottom: '8px' }}>{cardThemes[m.theme || 0].emojis}</div>
-                <div style={{ fontWeight: 600, whiteSpace: 'pre-wrap' }}>{m.cardText}</div>
-                <div style={{ fontSize: '0.68rem', opacity: 0.6, marginTop: '10px' }}>— {m.from}</div>
-              </div>
+              <span style={{ fontStyle: "italic", opacity: 0.55, display: "inline-flex", alignItems: "center", gap: "5px" }}><Trash2 size={12} /> Message supprimé</span>
             ) : (
               <span>{m.text}</span>
             )}
             <small>{new Date(m.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</small>
-
-            {menuFor === m.id && (
-              <button
-                onClick={e => { e.stopPropagation(); deleteMessage(m.id); }}
-                style={{
-                  position: 'absolute', top: '-12px', right: 0,
-                  background: '#fff', border: '1px solid #eee', borderRadius: '999px',
-                  padding: '4px 10px', fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: '4px',
-                  color: '#e53e3e', boxShadow: '0 3px 8px rgba(0,0,0,0.14)', cursor: 'pointer', zIndex: 5
-                }}
-              >
-                <Trash2 size={12} /> Supprimer
-              </button>
+            {m.from === name && !m.deleted && (
+              <div style={{ position: "absolute", top: "6px", right: "6px" }}>
+                <button type="button" aria-label="Options du message" onClick={e => { e.stopPropagation(); setMenuFor(menuFor === m.id ? null : m.id); }} style={{ width: 24, height: 24, border: "none", borderRadius: "50%", background: "rgba(255,255,255,0.72)", color: "#6E2338", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 17, lineHeight: 1, padding: 0 }}>⋯</button>
+                {menuFor === m.id && (
+                  <div style={{ position: "absolute", top: 28, right: 0, minWidth: 125, background: "#fff", border: "1px solid #f0dfe6", borderRadius: 12, boxShadow: "0 8px 24px rgba(60,10,30,0.18)", padding: 5, zIndex: 20 }}>
+                    <button type="button" onClick={() => deleteMessage(m.id)} style={{ width: "100%", border: "none", background: "none", color: "#e53e3e", padding: "8px 10px", borderRadius: 8, textAlign: "left", fontSize: "0.78rem", cursor: "pointer" }}>Supprimer</button>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         ))}
       </div>
-
-      {showCard && (
-        <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(20,5,15,0.6)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
-          onClick={() => setShowCard(false)}
-        >
-          <div
-            className="card"
-            style={{ maxWidth: '340px', width: '100%', background: cardThemes[cardTheme].bg, position: 'relative' }}
-            onClick={e => e.stopPropagation()}
-          >
-            <button
-              onClick={() => setShowCard(false)}
-              style={{ position: 'absolute', top: '10px', right: '10px', background: 'none', border: 'none', color: '#4a1030', opacity: 0.6 }}
-            >
-              <X size={18} />
-            </button>
-            <div style={{ fontSize: '1.5rem', textAlign: 'center', margin: '4px 0 12px' }}>{cardThemes[cardTheme].emojis}</div>
-            <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginBottom: '12px' }}>
-              {cardThemes.map((t, i) => (
-                <button
-                  key={i}
-                  onClick={() => setCardTheme(i)}
-                  style={{ width: 28, height: 28, borderRadius: '50%', background: t.bg, border: cardTheme === i ? '2px solid #C9184A' : '1px solid #fff', cursor: 'pointer' }}
-                />
-              ))}
-            </div>
-            <textarea
-              value={cardText}
-              onChange={e => setCardText(e.target.value)}
-              placeholder="Écris ta carte vœux…"
-              style={{ minHeight: '100px', background: 'rgba(255,255,255,0.5)' }}
-            />
-            <div style={{ fontSize: '0.7rem', opacity: 0.6, margin: '4px 0 12px', color: '#4a1030' }}>Signé : {name}</div>
-            <button className="primary" onClick={sendCard} style={{ width: '100%' }}>Envoyer</button>
-          </div>
-        </div>
-      )}
-
       <div className="composer">
-        <button onClick={() => setShowCard(true)} title="Carte vœux" style={{ background: 'none', border: 'none', color: '#C9184A', padding: '0 6px', cursor: 'pointer' }}>
-          <Gift size={20} />
-        </button>
-        <input value={text} onChange={e => setText(e.target.value)} onKeyDown={e => e.key === "Enter" && send()} placeholder="Écris quelque chose de doux…" />
-        <button onClick={send}><Send size={17} /></button>
+        <input value={text} onChange={e => setText(e.target.value)} onKeyDown={e => e.key === "Enter" && send()} placeholder="Message" />
+        <button onClick={send} aria-label="Envoyer"><Send size={17} /></button>
       </div>
     </div>
   );
@@ -1881,7 +1754,7 @@ function Games({ data, save, name }) {
   );
 }
 
-function More({ data, save, logout, room, name }) {
+function More({ data, save, logout, room, name, onOpenPacks }) {
   const [v, setV] = useState(0);
   const toggle = () => save({
     ...data,
@@ -1984,6 +1857,12 @@ function More({ data, save, logout, room, name }) {
         </div>
       </div>
 
+      <div className="card" style={{ marginBottom: '14px' }}>
+        <button className="primary" onClick={onOpenPacks} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+          <Plus size={17} /> Packs spéciaux
+        </button>
+      </div>
+
       <div className="card settings">
         <div><BellRing size={16} /> Rappels</div>
         <div><Users size={16} /> Code de votre couple : <b style={{ letterSpacing: '1px' }}>{room}</b></div>
@@ -2041,7 +1920,6 @@ function PacksModal({ data, save, name, setTab, onClose }) {
               <PackTile icon={Heart} title="Pack Saint-Valentin" desc={isFeb14 ? "Disponible aujourd'hui 💗" : "S'active chaque 14 février"} onClick={() => setView("valentine")} locked={!isFeb14} />
               <PackTile icon={Gem} title="Pack Demande en mariage" desc="Compte à rebours, animation et souvenir de la demande" onClick={() => setView("proposal")} />
               <PackTile icon={Cake} title="Pack Anniversaire" desc="Carte, défis, idées cadeaux et capsule surprise" onClick={() => setView("birthday")} />
-              <PackTile icon={MessageSquareText} title="100 raisons de t'aimer" desc="Un petit livre d'amour numérique à construire à deux" onClick={() => setView("reasons")} />
             </div>
           </>
         )}
@@ -2049,7 +1927,6 @@ function PacksModal({ data, save, name, setTab, onClose }) {
         {view === "valentine" && <PackValentine data={data} save={save} name={name} setTab={setTab} onClose={onClose} isFeb14={isFeb14} back={() => setView("menu")} />}
         {view === "proposal" && <PackProposal data={data} save={save} name={name} setTab={setTab} onClose={onClose} back={() => setView("menu")} />}
         {view === "birthday" && <PackBirthday data={data} save={save} name={name} setTab={setTab} onClose={onClose} back={() => setView("menu")} />}
-        {view === "reasons" && <PackReasons data={data} save={save} name={name} back={() => setView("menu")} />}
       </div>
     </div>
   );
