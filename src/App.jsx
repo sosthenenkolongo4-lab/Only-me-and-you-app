@@ -2304,4 +2304,195 @@ function PackBirthday({ data, save, name, setTab, onClose, back }) {
       </div>
 
       {cardText && (
-        <div className="card" style={{ background: 'linear-gradient(160deg,#ffe1ea,#ffd08a)' }}>
+        <div
+          className="card"
+          style={{
+            background: 'linear-gradient(160deg,#ffe1ea,#ffd08a)',
+            color: '#4a1030'
+          }}
+        >
+          <h4 style={{ margin: '0 0 8px' }}>🎂 Aperçu de la carte</h4>
+          <div
+            style={{
+              background: 'rgba(255,255,255,0.55)',
+              borderRadius: '14px',
+              padding: '16px',
+              textAlign: 'center',
+              whiteSpace: 'pre-wrap',
+              lineHeight: 1.5
+            }}
+          >
+            <div style={{ fontSize: '1.8rem', marginBottom: '8px' }}>🎉🎂💗</div>
+            <p style={{ margin: 0, fontWeight: 600 }}>{cardText}</p>
+            {personName && (
+              <small style={{ display: 'block', marginTop: '10px', opacity: 0.65 }}>
+                Pour {personName} ❤️
+              </small>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="card">
+        <h4 style={{ margin: '0 0 8px' }}>🎁 Idées cadeaux</h4>
+
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <input
+            value={giftInput}
+            onChange={e => setGiftInput(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && addGift()}
+            placeholder="Ex. parfum, dîner, vêtement…"
+          />
+          <button onClick={addGift} style={{ padding: '0 12px' }}>
+            <Plus size={16} />
+          </button>
+        </div>
+
+        {b.giftIdeas.length > 0 && (
+          <div style={{ marginTop: '10px' }}>
+            {b.giftIdeas.map(gift => (
+              <div
+                key={gift.id}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '8px 0',
+                  borderBottom: '1px solid #f1dbe4'
+                }}
+              >
+                <Gift size={15} color="#C9184A" />
+                <span style={{ flex: 1 }}>{gift.text}</span>
+                <button
+                  onClick={() => removeGift(gift.id)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#bbb',
+                    padding: '4px'
+                  }}
+                  title="Supprimer"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!b.giftIdeas.length && (
+          <div className="empty" style={{ marginTop: '10px' }}>
+            Aucune idée cadeau pour le moment. 🎁
+          </div>
+        )}
+      </div>
+
+      <div className="card">
+        <h4 style={{ margin: '0 0 8px' }}>🎯 Défis anniversaire</h4>
+
+        {birthdayChallenges.map(challenge => {
+          const done = b.challengesDone.includes(challenge);
+
+          return (
+            <div
+              key={challenge}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '8px 0',
+                borderBottom: '1px solid #f1dbe4'
+              }}
+            >
+              <button
+                onClick={() => toggleChallenge(challenge)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  padding: 0,
+                  flexShrink: 0
+                }}
+              >
+                {done ? (
+                  <Check size={17} color="#22c55e" />
+                ) : (
+                  <span
+                    style={{
+                      width: 17,
+                      height: 17,
+                      borderRadius: '50%',
+                      border: '1.5px solid #ccc',
+                      display: 'inline-block'
+                    }}
+                  />
+                )}
+              </button>
+
+              <span
+                style={{
+                  flex: 1,
+                  fontSize: '0.85rem',
+                  textDecoration: done ? 'line-through' : 'none',
+                  opacity: done ? 0.5 : 1
+                }}
+              >
+                {challenge}
+              </span>
+            </div>
+          );
+        })}
+
+        <div
+          style={{
+            fontSize: '0.8rem',
+            color: '#8A5568',
+            marginTop: '8px'
+          }}
+        >
+          {b.challengesDone.length} / {birthdayChallenges.length} défis relevés 🎉
+        </div>
+      </div>
+
+      <div className="card">
+        <h4 style={{ margin: '0 0 8px' }}>⏳ Capsule anniversaire</h4>
+
+        <p style={{ fontSize: '0.78rem', color: '#8A5568' }}>
+          Écris un message qui sera conservé jusqu'au prochain anniversaire.
+        </p>
+
+        <textarea
+          value={capsuleText}
+          onChange={e => setCapsuleText(e.target.value)}
+          placeholder="Ton message à découvrir l'année prochaine…"
+        />
+
+        <button
+          className="primary"
+          onClick={sealCapsule}
+          style={{ marginTop: '6px' }}
+        >
+          <Clock3 size={15} /> Sceller la capsule
+        </button>
+      </div>
+
+      <div className="card">
+        <h4 style={{ margin: '0 0 8px' }}>📷 Souvenir</h4>
+
+        <p style={{ fontSize: '0.8rem', color: '#8A5568' }}>
+          Ajoutez une photo de cet anniversaire dans votre histoire.
+        </p>
+
+        <button
+          className="secondary"
+          onClick={() => {
+            onClose();
+            setTab('story');
+          }}
+        >
+          Aller ajouter une photo
+        </button>
+      </div>
+    </div>
+  );
+}
+
