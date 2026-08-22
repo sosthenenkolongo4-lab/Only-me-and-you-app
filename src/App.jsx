@@ -575,6 +575,14 @@ function Shell({ children }) {
           padding-bottom: 105px !important;
         }
 
+        @media (min-width: 700px) {
+          .app > nav {
+            left: 50% !important;
+            right: auto !important;
+            width: min(680px, calc(100% - 36px)) !important;
+            transform: translateX(-50%) !important;
+          }
+        }
       `}</style>
       {children}
     </div>
@@ -823,11 +831,31 @@ const cardThemes = [
 function Chat({ data, name, save }) {
   const [text, setText] = useState("");
   const [menuFor, setMenuFor] = useState(null);
+  const [menuY, setMenuY] = useState(0);
+  const [showCard, setShowCard] = useState(false);
+  const [cardText, setCardText] = useState("");
+  const [cardTheme, setCardTheme] = useState(0);
 
   const send = () => {
     if (!text.trim()) return;
-    save({ ...data, messages: [...data.messages, { id: uid(), from: name, text: text.trim(), date: new Date().toISOString(), type: "text" }] });
+    save({
+      ...data,
+      messages: [...data.messages, { id: uid(), from: name, text: text.trim(), date: new Date().toISOString(), type: "text", reactions: [] }]
+    });
     setText("");
+  };
+
+  const sendCard = () => {
+    if (!cardText.trim()) return;
+    save({
+      ...data,
+      messages: [...data.messages, {
+        id: uid(), from: name, date: new Date().toISOString(),
+        type: "card", cardText: cardText.trim(), theme: cardTheme, reactions: []
+      }]
+    });
+    setCardText("");
+    setShowCard(false);
   };
 
   const deleteMessage = (id) => {
@@ -835,35 +863,196 @@ function Chat({ data, name, save }) {
     setMenuFor(null);
   };
 
+  const copyMessage = (m) => {
+    const value = m.type === "card" ? m.cardText : m.text;
+    if (navigator.clipboard && value) navigator.clipboard.writeText(value).catch(() => {});
+    setMenuFor(null);
+  };
+
+  const toggleReaction = (id, emoji) => {
+    save({
+      ...data,
+      messages: data.messages.map(m => {
+        if (m.id !== id) return m;
+        const reactions = m.reactions || [];
+        const mine = reactions.find(r => r.author === name);
+        let next;
+        if (mine && mine.emoji === emoji) next = reactions.filter(r => r.author !== name);
+        else if (mine) next = reactions.map(r => r.author === name ? { ...r, emoji } : r);
+        else next = [...reactions, { emoji, author: name }];
+        return { ...m, reactions: next };
+      })
+    });
+    setMenuFor(null);
+  };
+
+  const openMenu = (e, m) => {
+    if (m.deleted) return;
+    setMenuY(e.clientY || 300);
+    setMenuFor(m.id);
+  };
+
+  const menuMessage = data.messages.find(m => m.id === menuFor);
+
   return (
     <div>
       <Title title="Notre conversation" sub="Un petit espace rien qu'à vous deux." />
       <div className="chat card">
         {data.messages.length === 0 && <div className="empty">Commencez votre conversation ❤️</div>}
-        {data.messages.map(m => (
-          <div className={"msg " + (m.from === name ? "mine" : "theirs")} key={m.id} style={{ position: "relative" }}>
-            {m.deleted ? (
-              <span style={{ fontStyle: "italic", opacity: 0.55, display: "inline-flex", alignItems: "center", gap: "5px" }}><Trash2 size={12} /> Message supprimé</span>
-            ) : (
-              <span>{m.text}</span>
-            )}
-            <small>{new Date(m.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</small>
-            {m.from === name && !m.deleted && (
-              <div style={{ position: "absolute", top: "6px", right: "6px" }}>
-                <button type="button" aria-label="Options du message" onClick={e => { e.stopPropagation(); setMenuFor(menuFor === m.id ? null : m.id); }} style={{ width: 24, height: 24, border: "none", borderRadius: "50%", background: "rgba(255,255,255,0.72)", color: "#6E2338", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 17, lineHeight: 1, padding: 0 }}>⋯</button>
-                {menuFor === m.id && (
-                  <div style={{ position: "absolute", top: 28, right: 0, minWidth: 125, background: "#fff", border: "1px solid #f0dfe6", borderRadius: 12, boxShadow: "0 8px 24px rgba(60,10,30,0.18)", padding: 5, zIndex: 20 }}>
-                    <button type="button" onClick={() => deleteMessage(m.id)} style={{ width: "100%", border: "none", background: "none", color: "#e53e3e", padding: "8px 10px", borderRadius: 8, textAlign: "left", fontSize: "0.78rem", cursor: "pointer" }}>Supprimer</button>
+        {data.messages.map(m => {
+          const reactions = m.reactions || [];
+          const counts = {};
+          reactions.forEach(r => { counts[r.emoji] = (counts[r.emoji] || 0) + 1; });
+
+          return (
+            <div key={m.id}>
+              <div
+                className={"msg " + (m.from === name ? "mine" : "theirs")}
+                onClick={e => openMenu(e, m)}
+              >
+                {m.deleted ? (
+                  <span style={{ fontStyle: 'italic', opacity: 0.55, display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
+                    <Trash2 size={12} /> Message supprimé
+                  </span>
+                ) : m.type === "card" ? (
+                  <div style={{
+                    background: cardThemes[m.theme || 0].bg,
+                    borderRadius: '14px',
+                    padding: '14px 14px 10px',
+                    minWidth: '190px',
+                    boxShadow: '0 6px 16px rgba(201,24,74,0.18)',
+                    color: '#4a1030'
+                  }}>
+                    <div style={{ fontSize: '1.15rem', marginBottom: '8px' }}>{cardThemes[m.theme || 0].emojis}</div>
+                    <div style={{ fontWeight: 600, whiteSpace: 'pre-wrap' }}>{m.cardText}</div>
+                    <div style={{ fontSize: '0.68rem', opacity: 0.6, marginTop: '10px' }}>— {m.from}</div>
                   </div>
+                ) : (
+                  <span>{m.text}</span>
                 )}
+                <small>{new Date(m.date).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}</small>
               </div>
-            )}
-          </div>
-        ))}
+              {Object.keys(counts).length > 0 && (
+                <div style={{
+                  display: 'flex', gap: '4px', margin: m.from === name ? '2px 4px 6px 0' : '2px 0 6px 4px',
+                  justifyContent: m.from === name ? 'flex-end' : 'flex-start'
+                }}>
+                  <span style={{ background: '#fff', border: '1px solid #f1dbe4', borderRadius: '99px', padding: '2px 8px', fontSize: '0.75rem', boxShadow: '0 2px 6px rgba(0,0,0,0.06)' }}>
+                    {Object.entries(counts).map(([e, c]) => e + (c > 1 ? c : "")).join(" ")}
+                  </span>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
+
+      {menuMessage && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 2500 }}
+          onClick={() => setMenuFor(null)}
+        >
+          <div
+            style={{
+              position: 'absolute',
+              top: `${Math.min(Math.max(menuY - 60, 70), 560)}px`,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              width: '92%',
+              maxWidth: '320px',
+              animation: 'popIn .14s ease-out'
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <style>{`
+              @keyframes popIn { from { opacity:0; transform: translateX(-50%) scale(.92); } to { opacity:1; transform: translateX(-50%) scale(1); } }
+            `}</style>
+            <div style={{
+              background: '#1c1c1e', borderRadius: '18px', padding: '10px 14px',
+              display: 'flex', justifyContent: 'space-between', marginBottom: '8px', boxShadow: '0 10px 30px rgba(0,0,0,0.4)'
+            }}>
+              {REACTIONS.map(em => (
+                <button
+                  key={em}
+                  onClick={() => toggleReaction(menuMessage.id, em)}
+                  style={{ background: 'none', border: 'none', fontSize: '1.3rem', cursor: 'pointer', padding: '2px' }}
+                >
+                  {em}
+                </button>
+              ))}
+            </div>
+            <div style={{ background: '#1c1c1e', borderRadius: '14px', overflow: 'hidden', boxShadow: '0 10px 30px rgba(0,0,0,0.4)' }}>
+              <button
+                onClick={() => copyMessage(menuMessage)}
+                style={{
+                  width: '100%', background: 'none', border: 'none', borderBottom: '1px solid rgba(255,255,255,0.08)',
+                  padding: '13px 16px', display: 'flex', alignItems: 'center', gap: '12px',
+                  color: 'rgba(255,255,255,0.9)', fontSize: '0.9rem', cursor: 'pointer'
+                }}
+              >
+                <Copy size={16} /> Copier
+              </button>
+              {menuMessage.from === name && (
+                <button
+                  onClick={() => deleteMessage(menuMessage.id)}
+                  style={{
+                    width: '100%', background: 'none', border: 'none',
+                    padding: '13px 16px', display: 'flex', alignItems: 'center', gap: '12px',
+                    color: '#ff453a', fontSize: '0.9rem', cursor: 'pointer'
+                  }}
+                >
+                  <Trash2 size={16} /> Supprimer
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showCard && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(20,5,15,0.6)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
+          onClick={() => setShowCard(false)}
+        >
+          <div
+            className="card"
+            style={{ maxWidth: '340px', width: '100%', background: cardThemes[cardTheme].bg, position: 'relative' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setShowCard(false)}
+              style={{ position: 'absolute', top: '10px', right: '10px', background: 'none', border: 'none', color: '#4a1030', opacity: 0.6, cursor: 'pointer' }}
+            >
+              <X size={18} />
+            </button>
+            <div style={{ fontSize: '1.5rem', textAlign: 'center', margin: '4px 0 12px' }}>{cardThemes[cardTheme].emojis}</div>
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', marginBottom: '12px' }}>
+              {cardThemes.map((t, i) => (
+                <button
+                  key={i}
+                  onClick={() => setCardTheme(i)}
+                  style={{ width: 28, height: 28, borderRadius: '50%', background: t.bg, border: cardTheme === i ? '2px solid #C9184A' : '1px solid #fff', cursor: 'pointer' }}
+                />
+              ))}
+            </div>
+            <textarea
+              value={cardText}
+              onChange={e => setCardText(e.target.value)}
+              placeholder="Écris ta carte vœux…"
+              style={{ minHeight: '100px', background: 'rgba(255,255,255,0.5)' }}
+            />
+            <div style={{ fontSize: '0.7rem', opacity: 0.6, margin: '4px 0 12px', color: '#4a1030' }}>Signé : {name}</div>
+            <button className="primary" onClick={sendCard} style={{ width: '100%' }}>Envoyer</button>
+          </div>
+        </div>
+      )}
+
       <div className="composer">
+        <button onClick={() => setShowCard(true)} title="Carte vœux" style={{ background: 'none', border: 'none', color: '#C9184A', padding: '0 6px', cursor: 'pointer' }}>
+          <Gift size={20} />
+        </button>
         <input value={text} onChange={e => setText(e.target.value)} onKeyDown={e => e.key === "Enter" && send()} placeholder="Message" />
-        <button onClick={send} aria-label="Envoyer"><Send size={17} /></button>
+        <button onClick={send}><Send size={17} /></button>
       </div>
     </div>
   );
@@ -1790,6 +1979,25 @@ function More({ data, save, logout, room, name, onOpenPacks }) {
   return (
     <div>
       <Title title="Plus pour nous" sub="Des petits détails qui rendent l'histoire spéciale." />
+
+      <button
+        onClick={onOpenPacks}
+        className="card"
+        style={{
+          display: 'flex', alignItems: 'center', gap: '12px', width: '100%', textAlign: 'left',
+          background: 'linear-gradient(135deg,#fdf2f8,#ffe9c7)', border: '1px solid #f1dbe4', cursor: 'pointer'
+        }}
+      >
+        <div style={{ width: 42, height: 42, borderRadius: '50%', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: '#C9184A' }}>
+          <Sparkles size={20} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 700, fontSize: '0.92rem' }}>✨ Packs spéciaux</div>
+          <div style={{ fontSize: '0.76rem', color: '#8A5568' }}>Saint-Valentin, demande en mariage, anniversaire…</div>
+        </div>
+        <ArrowRight size={16} style={{ opacity: 0.4 }} />
+      </button>
+
       <div className="card verse bigVerse">
         <BookOpenText size={22} />
         <p>« {verses[v][1]} »</p>
@@ -1855,12 +2063,6 @@ function More({ data, save, logout, room, name, onOpenPacks }) {
         <div style={{ fontSize: '0.8rem', color: '#8A5568', marginTop: '8px' }}>
           {data.challengesDone.length} / {challengesList.length} défis relevés 🎉
         </div>
-      </div>
-
-      <div className="card" style={{ marginBottom: '14px' }}>
-        <button className="primary" onClick={onOpenPacks} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-          <Plus size={17} /> Packs spéciaux
-        </button>
       </div>
 
       <div className="card settings">
@@ -2031,12 +2233,6 @@ function PackValentine({ data, save, name, setTab, onClose, isFeb14, back }) {
       </div>
 
       <div className="card">
-        <h4 style={{ margin: '0 0 8px' }}>📷 Souvenir spécial</h4>
-        <p style={{ fontSize: '0.8rem', color: '#8A5568' }}>Ajoutez une photo souvenir de votre Saint-Valentin dans votre histoire.</p>
-        <button className="secondary" onClick={() => { onClose(); setTab('story'); }}>Aller ajouter une photo</button>
-      </div>
-
-      <div className="card">
         <h4 style={{ margin: '0 0 8px' }}>⏳ Capsule « ouvre ce message plus tard »</h4>
         <p style={{ fontSize: '0.78rem', color: '#8A5568' }}>Se déverrouille automatiquement le 14 février prochain.</p>
         <textarea value={capsuleText} onChange={e => setCapsuleText(e.target.value)} placeholder="Le message à découvrir l'an prochain…" />
@@ -2102,12 +2298,6 @@ function PackProposal({ data, save, name, setTab, onClose, back }) {
           <p style={{ fontSize: '0.8rem', color: '#8A5568' }}>Conservé dans votre Histoire.</p>
         </div>
       )}
-
-      <div className="card">
-        <h4 style={{ margin: '0 0 8px' }}>📷 Photos & souvenirs</h4>
-        <p style={{ fontSize: '0.8rem', color: '#8A5568' }}>Ajoutez vos photos de ce moment dans votre histoire commune.</p>
-        <button className="secondary" onClick={() => { onClose(); setTab('story'); }}>Aller ajouter une photo</button>
-      </div>
 
       {showAnim && (
         <div style={{ position: 'fixed', inset: 0, background: 'linear-gradient(160deg,#4a1030,#C9184A)', zIndex: 4000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#fff', padding: '24px', textAlign: 'center' }}>
@@ -2181,195 +2371,46 @@ function PackBirthday({ data, save, name, setTab, onClose, back }) {
       </div>
 
       {cardText && (
-        <div
-          className="card"
-          style={{
-            background: 'linear-gradient(160deg,#ffe1ea,#ffd08a)',
-            color: '#4a1030'
-          }}
-        >
-          <h4 style={{ margin: '0 0 8px' }}>🎂 Aperçu de la carte</h4>
-          <div
-            style={{
-              background: 'rgba(255,255,255,0.55)',
-              borderRadius: '14px',
-              padding: '16px',
-              textAlign: 'center',
-              whiteSpace: 'pre-wrap',
-              lineHeight: 1.5
-            }}
-          >
-            <div style={{ fontSize: '1.8rem', marginBottom: '8px' }}>🎉🎂💗</div>
-            <p style={{ margin: 0, fontWeight: 600 }}>{cardText}</p>
-            {personName && (
-              <small style={{ display: 'block', marginTop: '10px', opacity: 0.65 }}>
-                Pour {personName} ❤️
-              </small>
-            )}
-          </div>
+        <div className="card" style={{ background: 'linear-gradient(160deg,#ffe1ea,#ffd08a)' }}>
+          <div style={{ fontSize: '1.3rem' }}>🎂 🎈 🎁</div>
+          <p style={{ fontWeight: 600, margin: '8px 0 0' }}>{cardText}</p>
         </div>
       )}
 
       <div className="card">
         <h4 style={{ margin: '0 0 8px' }}>🎁 Idées cadeaux</h4>
-
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <input
-            value={giftInput}
-            onChange={e => setGiftInput(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && addGift()}
-            placeholder="Ex. parfum, dîner, vêtement…"
-          />
-          <button onClick={addGift} style={{ padding: '0 12px' }}>
-            <Plus size={16} />
-          </button>
-        </div>
-
-        {b.giftIdeas.length > 0 && (
-          <div style={{ marginTop: '10px' }}>
-            {b.giftIdeas.map(gift => (
-              <div
-                key={gift.id}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  padding: '8px 0',
-                  borderBottom: '1px solid #f1dbe4'
-                }}
-              >
-                <Gift size={15} color="#C9184A" />
-                <span style={{ flex: 1 }}>{gift.text}</span>
-                <button
-                  onClick={() => removeGift(gift.id)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: '#bbb',
-                    padding: '4px'
-                  }}
-                  title="Supprimer"
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            ))}
+        {b.giftIdeas.map(g => (
+          <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 0' }}>
+            <span style={{ flex: 1, fontSize: '0.85rem' }}>{g.text}</span>
+            <button onClick={() => removeGift(g.id)} style={{ background: 'none', border: 'none', color: '#bbb' }}><Trash2 size={14} /></button>
           </div>
-        )}
-
-        {!b.giftIdeas.length && (
-          <div className="empty" style={{ marginTop: '10px' }}>
-            Aucune idée cadeau pour le moment. 🎁
-          </div>
-        )}
-      </div>
-
-      <div className="card">
-        <h4 style={{ margin: '0 0 8px' }}>🎯 Défis anniversaire</h4>
-
-        {birthdayChallenges.map(challenge => {
-          const done = b.challengesDone.includes(challenge);
-
-          return (
-            <div
-              key={challenge}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '8px 0',
-                borderBottom: '1px solid #f1dbe4'
-              }}
-            >
-              <button
-                onClick={() => toggleChallenge(challenge)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  padding: 0,
-                  flexShrink: 0
-                }}
-              >
-                {done ? (
-                  <Check size={17} color="#22c55e" />
-                ) : (
-                  <span
-                    style={{
-                      width: 17,
-                      height: 17,
-                      borderRadius: '50%',
-                      border: '1.5px solid #ccc',
-                      display: 'inline-block'
-                    }}
-                  />
-                )}
-              </button>
-
-              <span
-                style={{
-                  flex: 1,
-                  fontSize: '0.85rem',
-                  textDecoration: done ? 'line-through' : 'none',
-                  opacity: done ? 0.5 : 1
-                }}
-              >
-                {challenge}
-              </span>
-            </div>
-          );
-        })}
-
-        <div
-          style={{
-            fontSize: '0.8rem',
-            color: '#8A5568',
-            marginTop: '8px'
-          }}
-        >
-          {b.challengesDone.length} / {birthdayChallenges.length} défis relevés 🎉
+        ))}
+        <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
+          <input value={giftInput} onChange={e => setGiftInput(e.target.value)} onKeyDown={e => e.key === "Enter" && addGift()} placeholder="Ajouter une idée…" />
+          <button onClick={addGift}><Plus size={16} /></button>
         </div>
       </div>
 
       <div className="card">
-        <h4 style={{ margin: '0 0 8px' }}>⏳ Capsule anniversaire</h4>
-
-        <p style={{ fontSize: '0.78rem', color: '#8A5568' }}>
-          Écris un message qui sera conservé jusqu'au prochain anniversaire.
-        </p>
-
-        <textarea
-          value={capsuleText}
-          onChange={e => setCapsuleText(e.target.value)}
-          placeholder="Ton message à découvrir l'année prochaine…"
-        />
-
-        <button
-          className="primary"
-          onClick={sealCapsule}
-          style={{ marginTop: '6px' }}
-        >
-          <Clock3 size={15} /> Sceller la capsule
-        </button>
+        <h4 style={{ margin: '0 0 8px' }}>🏆 Défis romantiques</h4>
+        {birthdayChallenges.map(c => (
+          <div key={c} style={{ display: 'flex', gap: '8px', alignItems: 'center', padding: '5px 0' }}>
+            <button onClick={() => toggleChallenge(c)} style={{ background: 'none', border: 'none', padding: 0 }}>
+              {b.challengesDone.includes(c) ? <Check size={16} color="#22c55e" /> : <span style={{ width: 16, height: 16, borderRadius: '50%', border: '1.5px solid #ccc', display: 'inline-block' }} />}
+            </button>
+            <span style={{ flex: 1, fontSize: '0.85rem', textDecoration: b.challengesDone.includes(c) ? 'line-through' : 'none', opacity: b.challengesDone.includes(c) ? 0.5 : 1 }}>{c}</span>
+          </div>
+        ))}
       </div>
 
       <div className="card">
-        <h4 style={{ margin: '0 0 8px' }}>📷 Souvenir</h4>
-
-        <p style={{ fontSize: '0.8rem', color: '#8A5568' }}>
-          Ajoutez une photo de cet anniversaire dans votre histoire.
-        </p>
-
-        <button
-          className="secondary"
-          onClick={() => {
-            onClose();
-            setTab('story');
-          }}
-        >
-          Aller ajouter une photo
-        </button>
+        <h4 style={{ margin: '0 0 8px' }}>⏳ Capsule à ouvrir l'année prochaine</h4>
+        <textarea value={capsuleText} onChange={e => setCapsuleText(e.target.value)} placeholder="Le message pour l'année prochaine…" />
+        <button className="primary" onClick={sealCapsule} style={{ marginTop: '6px' }} disabled={!dateVal}><Clock3 size={15} /> Sceller</button>
       </div>
     </div>
   );
 }
+
+
 
