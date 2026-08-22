@@ -2304,4 +2304,4 @@ function PackBirthday({ data, save, name, setTab, onClose, back }) {
       </div>
 
       {cardText && (
-        <div className="card" style={{ background: 'linear-gradient(160deg,#ffe1ea,#ffd08a)
+        <div className="card" style={{ background: 'linear-gradient(160deg,#ffe1ea,#ffd08a)' }}>
