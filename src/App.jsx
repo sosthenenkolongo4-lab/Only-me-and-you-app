@@ -37,6 +37,7 @@ const EMPTY = {
   moods: {},
   outingsDone: [],
   challengesDone: [],
+  challengesWeek: "",
   packs: {
     valentineMessages: [],
     valentineChallengesDone: [],
@@ -53,15 +54,43 @@ const dateIdeasCategories = {
   "Gourmand": ["Nouveau restaurant", "Atelier cuisine", "Dégustation", "Brunch du dimanche"]
 };
 
-const challengesList = [
+const challengesPool = [
   "Préparer le petit-déjeuner au lit",
   "Envoyer un selfie rigolo",
   "Écrire 3 choses que j'aime chez toi",
   "Proposer une sortie surprise",
   "Cuisiner le plat préféré de l'autre",
   "Offrir un compliment sincère aujourd'hui",
-  "Planifier une soirée sans téléphone"
+  "Planifier une soirée sans téléphone",
+  "Envoyer un message d'amour avant midi",
+  "Se remémorer un souvenir marquant ensemble",
+  "Faire une activité nouvelle à deux cette semaine",
+  "Écrire une petite note surprise",
+  "Se dire un compliment en personne, les yeux dans les yeux",
+  "Regarder un film qui a marqué l'un de vous deux",
+  "Préparer un dîner aux chandelles"
 ];
+
+// Renvoie une clé unique par semaine (le lundi de la semaine en cours),
+// qui change automatiquement chaque lundi à minuit.
+function getWeekKey(d = new Date()) {
+  const day = (d.getDay() + 6) % 7; // lundi = 0 ... dimanche = 6
+  const monday = new Date(d);
+  monday.setHours(0, 0, 0, 0);
+  monday.setDate(d.getDate() - day);
+  return monday.toISOString().slice(0, 10);
+}
+
+// Sélectionne 5 défis dans le pool, de façon stable pour toute la semaine,
+// mais différente d'une semaine à l'autre.
+function getWeeklyChallenges(weekKey) {
+  const weeksSinceEpoch = Math.floor(new Date(weekKey + "T00:00:00").getTime() / (7 * 86400000));
+  const start = ((weeksSinceEpoch % challengesPool.length) + challengesPool.length) % challengesPool.length;
+  const count = 5;
+  const result = [];
+  for (let i = 0; i < count; i++) result.push(challengesPool[(start + i) % challengesPool.length]);
+  return result;
+}
 
 const moodOptions = ["😍", "😊", "😌", "😴", "😢", "😤", "🥳", "😐"];
 
@@ -158,7 +187,8 @@ function mergeData(raw) {
     capsules: raw?.capsules || [],
     moods: raw?.moods || {},
     outingsDone: raw?.outingsDone || [],
-    challengesDone: raw?.challengesDone || [],
+    challengesDone: (raw?.challengesWeek === getWeekKey()) ? (raw?.challengesDone || []) : [],
+    challengesWeek: getWeekKey(),
     packs: {
       ...EMPTY.packs,
       ...(safeRaw.packs || {}),
@@ -897,7 +927,7 @@ function Chat({ data, name, save }) {
   return (
     <div>
       <Title title="Notre conversation" sub="Un petit espace rien qu'à vous deux." />
-      <div className="chat card">
+      <div className="chat card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', alignItems: 'stretch' }}>
         {data.messages.length === 0 && <div className="empty">Commencez votre conversation ❤️</div>}
         {data.messages.map(m => {
           const reactions = m.reactions || [];
@@ -2052,7 +2082,8 @@ function More({ data, save, logout, room, name, onOpenPacks }) {
 
       <div className="card">
         <h3>🏆 Défis de la semaine</h3>
-        {challengesList.map(c => (
+        <p style={{ fontSize: '0.76rem', color: '#8A5568', marginTop: '-6px' }}>Nouveaux défis chaque lundi ✨</p>
+        {getWeeklyChallenges(getWeekKey()).map(c => (
           <div key={c} className="row" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 0' }}>
             <button onClick={() => toggleChallenge(c)} style={{ background: 'none', border: 'none', padding: 0 }}>
               {data.challengesDone.includes(c) ? <Check size={16} color="#22c55e" /> : <span style={{ width: 16, height: 16, borderRadius: '50%', border: '1.5px solid #ccc', display: 'inline-block' }} />}
@@ -2061,7 +2092,7 @@ function More({ data, save, logout, room, name, onOpenPacks }) {
           </div>
         ))}
         <div style={{ fontSize: '0.8rem', color: '#8A5568', marginTop: '8px' }}>
-          {data.challengesDone.length} / {challengesList.length} défis relevés 🎉
+          {data.challengesDone.length} / {getWeeklyChallenges(getWeekKey()).length} défis relevés cette semaine 🎉
         </div>
       </div>
 
@@ -2300,117 +2331,4 @@ function PackProposal({ data, save, name, setTab, onClose, back }) {
       )}
 
       {showAnim && (
-        <div style={{ position: 'fixed', inset: 0, background: 'linear-gradient(160deg,#4a1030,#C9184A)', zIndex: 4000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#fff', padding: '24px', textAlign: 'center' }}>
-          <style>{`
-            @keyframes ringFloat { 0%{transform:translateY(0) rotate(0deg);} 50%{transform:translateY(-14px) rotate(8deg);} 100%{transform:translateY(0) rotate(0deg);} }
-            .ring-anim { animation: ringFloat 1.6s ease-in-out infinite; }
-          `}</style>
-          <div className="ring-anim"><Gem size={54} /></div>
-          <h2 style={{ margin: '16px 0 8px' }}>Un moment inoubliable…</h2>
-          <p style={{ maxWidth: '320px', opacity: 0.9 }}>{message || "Ce jour restera gravé pour toujours."}</p>
-          <div style={{ display: 'flex', gap: '10px', marginTop: '24px' }}>
-            <button className="primary" onClick={confirmAsked}>💍 Oui !</button>
-            <button className="secondary" onClick={() => setShowAnim(false)}>Fermer</button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function PackBirthday({ data, save, name, setTab, onClose, back }) {
-  const b = data.packs.birthday;
-  const [personName, setPersonName] = useState(b.personName || "");
-  const [dateVal, setDateVal] = useState(b.date || "");
-  const [cardText, setCardText] = useState(b.cardText || "");
-  const [giftInput, setGiftInput] = useState("");
-  const [capsuleText, setCapsuleText] = useState("");
-
-  const savePlan = () => save({ ...data, packs: { ...data.packs, birthday: { ...b, personName, date: dateVal, cardText } } });
-
-  const addGift = () => {
-    if (!giftInput.trim()) return;
-    save({ ...data, packs: { ...data.packs, birthday: { ...b, giftIdeas: [...b.giftIdeas, { id: uid(), text: giftInput.trim() }] } } });
-    setGiftInput("");
-  };
-  const removeGift = (id) => save({ ...data, packs: { ...data.packs, birthday: { ...b, giftIdeas: b.giftIdeas.filter(g => g.id !== id) } } });
-
-  const toggleChallenge = (c) => {
-    const done = b.challengesDone.includes(c);
-    save({ ...data, packs: { ...data.packs, birthday: { ...b, challengesDone: done ? b.challengesDone.filter(x => x !== c) : [...b.challengesDone, c] } } });
-  };
-
-  const sealCapsule = () => {
-    if (!capsuleText.trim() || !dateVal) return;
-    const nextYear = new Date(dateVal + "T00:00:00"); nextYear.setFullYear(nextYear.getFullYear() + 1);
-    save({ ...data, capsules: [{ id: uid(), text: capsuleText.trim(), unlockDate: nextYear.toISOString().slice(0, 10), author: name, tag: "birthday" }, ...data.capsules] });
-    setCapsuleText("");
-  };
-
-  const now = new Date();
-  let daysLeft = null;
-  if (dateVal) {
-    const [, m, d] = dateVal.split("-").map(Number);
-    let next = new Date(now.getFullYear(), m - 1, d);
-    if (next < now) next = new Date(now.getFullYear() + 1, m - 1, d);
-    daysLeft = Math.ceil((next - now) / 86400000);
-  }
-
-  return (
-    <div>
-      <button onClick={back} style={{ background: 'none', border: 'none', color: '#C9184A', marginBottom: '10px', cursor: 'pointer' }}>← Retour</button>
-      <h3 style={{ margin: '0 0 4px' }}>🎂 Pack Anniversaire</h3>
-
-      <div className="card">
-        <h4 style={{ margin: '0 0 8px' }}>🎉 Infos</h4>
-        <input value={personName} onChange={e => setPersonName(e.target.value)} placeholder="Qui fête son anniversaire ?" style={{ marginBottom: '8px' }} />
-        <input type="date" value={dateVal} onChange={e => setDateVal(e.target.value)} style={{ marginBottom: '8px' }} />
-        <textarea value={cardText} onChange={e => setCardText(e.target.value)} placeholder="Message de la carte d'anniversaire…" />
-        <button className="primary" onClick={savePlan} style={{ marginTop: '6px' }}>Enregistrer</button>
-        {daysLeft !== null && <div style={{ marginTop: '8px', fontSize: '0.85rem', color: '#8A5568' }}>⏳ {daysLeft} jour(s) avant le jour J</div>}
-      </div>
-
-      {cardText && (
-        <div className="card" style={{ background: 'linear-gradient(160deg,#ffe1ea,#ffd08a)' }}>
-          <div style={{ fontSize: '1.3rem' }}>🎂 🎈 🎁</div>
-          <p style={{ fontWeight: 600, margin: '8px 0 0' }}>{cardText}</p>
-        </div>
-      )}
-
-      <div className="card">
-        <h4 style={{ margin: '0 0 8px' }}>🎁 Idées cadeaux</h4>
-        {b.giftIdeas.map(g => (
-          <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 0' }}>
-            <span style={{ flex: 1, fontSize: '0.85rem' }}>{g.text}</span>
-            <button onClick={() => removeGift(g.id)} style={{ background: 'none', border: 'none', color: '#bbb' }}><Trash2 size={14} /></button>
-          </div>
-        ))}
-        <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
-          <input value={giftInput} onChange={e => setGiftInput(e.target.value)} onKeyDown={e => e.key === "Enter" && addGift()} placeholder="Ajouter une idée…" />
-          <button onClick={addGift}><Plus size={16} /></button>
-        </div>
-      </div>
-
-      <div className="card">
-        <h4 style={{ margin: '0 0 8px' }}>🏆 Défis romantiques</h4>
-        {birthdayChallenges.map(c => (
-          <div key={c} style={{ display: 'flex', gap: '8px', alignItems: 'center', padding: '5px 0' }}>
-            <button onClick={() => toggleChallenge(c)} style={{ background: 'none', border: 'none', padding: 0 }}>
-              {b.challengesDone.includes(c) ? <Check size={16} color="#22c55e" /> : <span style={{ width: 16, height: 16, borderRadius: '50%', border: '1.5px solid #ccc', display: 'inline-block' }} />}
-            </button>
-            <span style={{ flex: 1, fontSize: '0.85rem', textDecoration: b.challengesDone.includes(c) ? 'line-through' : 'none', opacity: b.challengesDone.includes(c) ? 0.5 : 1 }}>{c}</span>
-          </div>
-        ))}
-      </div>
-
-      <div className="card">
-        <h4 style={{ margin: '0 0 8px' }}>⏳ Capsule à ouvrir l'année prochaine</h4>
-        <textarea value={capsuleText} onChange={e => setCapsuleText(e.target.value)} placeholder="Le message pour l'année prochaine…" />
-        <button className="primary" onClick={sealCapsule} style={{ marginTop: '6px' }} disabled={!dateVal}><Clock3 size={15} /> Sceller</button>
-      </div>
-    </div>
-  );
-}
-
-
-
+        <div style={{ position: 'fixed', inset: 0, background: 'linear-gradient(160deg,#4
