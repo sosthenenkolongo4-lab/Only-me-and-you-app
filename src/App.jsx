@@ -5,7 +5,7 @@ import {
   Sparkles, Send, Camera, Gift, Check, Copy, LogOut, Users, Clock3,
   Plus, Trash2, Star, RefreshCw, Lock, ArrowRight, X, BellRing, Settings,
   MapPin, HelpCircle, Lightbulb, Cake, Gem, PartyPopper, ListTodo,
-  MessageSquareText, Library, Search, Mail, Pencil, MoreVertical
+  MessageSquareText, Library, Search, Mail, Pencil, MoreVertical, Reply
 } from "lucide-react";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -1036,13 +1036,19 @@ const cardThemes = [
 function Chat({ data, name, save }) {
   const [text, setText] = useState("");
   const [menuFor, setMenuFor] = useState(null);
-  const [menuY, setMenuY] = useState(0);
+  const [menuAnchor, setMenuAnchor] = useState({ top: 0, bottom: 0 });
+  const [menuTop, setMenuTop] = useState(100);
+  const menuBoxRef = React.useRef(null);
   const [showCard, setShowCard] = useState(false);
   const [cardText, setCardText] = useState("");
   const [cardTheme, setCardTheme] = useState(0);
   const [revealCard, setRevealCard] = useState(null);
   const [revealing, setRevealing] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [replyTo, setReplyTo] = useState(null);
+  const [swipe, setSwipe] = useState({ id: null, dx: 0, locked: null });
+  const touchStart = React.useRef({ x: 0, y: 0 });
+  const msgRefs = React.useRef({});
 
   const visibleMessages = data.messages.filter(m => !m.deleted && !(m.hiddenFor || []).includes(name));
 
@@ -1059,9 +1065,65 @@ function Chat({ data, name, save }) {
     }
     save({
       ...data,
-      messages: [...data.messages, { id: uid(), from: name, text: text.trim(), date: new Date().toISOString(), type: "text" }]
+      messages: [...data.messages, {
+        id: uid(), from: name, text: text.trim(), date: new Date().toISOString(), type: "text",
+        ...(replyTo ? {
+          replyTo: {
+            id: replyTo.id,
+            author: replyTo.from,
+            text: replyTo.type === "card" ? "💌 Carte vœux" : (replyTo.text || "")
+          }
+        } : {})
+      }]
     });
     setText("");
+    setReplyTo(null);
+  };
+
+  const startReply = (m) => {
+    setReplyTo(m);
+    setEditingId(null);
+    setMenuFor(null);
+  };
+
+  const cancelReply = () => setReplyTo(null);
+
+  const scrollToMessage = (id) => {
+    const el = msgRefs.current[id];
+    if (el && el.scrollIntoView) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.style.transition = "background-color .3s ease";
+      el.style.backgroundColor = "rgba(201,24,74,0.18)";
+      setTimeout(() => { el.style.backgroundColor = ""; }, 700);
+    }
+  };
+
+  // --- Swipe pour répondre (comme WhatsApp / Instagram) ---
+  const onTouchStartMsg = (e, m) => {
+    const t = e.touches ? e.touches[0] : e;
+    touchStart.current = { x: t.clientX, y: t.clientY };
+    setSwipe({ id: m.id, dx: 0, locked: null });
+  };
+  const onTouchMoveMsg = (e, m) => {
+    if (swipe.id !== m.id) return;
+    const t = e.touches ? e.touches[0] : e;
+    const dx = t.clientX - touchStart.current.x;
+    const dy = t.clientY - touchStart.current.y;
+    let locked = swipe.locked;
+    if (!locked && (Math.abs(dx) > 8 || Math.abs(dy) > 8)) {
+      locked = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+    }
+    if (locked === "x") {
+      if (e.cancelable) e.preventDefault();
+      const clamped = Math.max(0, Math.min(dx, 72));
+      setSwipe({ id: m.id, dx: clamped, locked });
+    } else if (locked === "y" && swipe.dx !== 0) {
+      setSwipe({ id: m.id, dx: 0, locked });
+    }
+  };
+  const onTouchEndMsg = (m) => {
+    if (swipe.id === m.id && swipe.dx > 42) startReply(m);
+    setSwipe({ id: null, dx: 0, locked: null });
   };
 
   const startEdit = (m) => {
@@ -1137,16 +1199,42 @@ function Chat({ data, name, save }) {
   };
 
   const openMenu = (e, m) => {
-    setMenuY(e.clientY || 300);
+    const rect = e.currentTarget.getBoundingClientRect();
+    setMenuAnchor({ top: rect.top, bottom: rect.bottom });
     setMenuFor(m.id);
   };
 
   const menuMessage = visibleMessages.find(m => m.id === menuFor);
 
+  // Repositionne le menu pour qu'il reste toujours entièrement visible à l'écran :
+  // au-dessus du message par défaut, en dessous si pas assez de place au-dessus,
+  // avec une marge de sécurité en haut et en bas.
+  React.useLayoutEffect(() => {
+    if (!menuFor || !menuBoxRef.current) return;
+    const menuH = menuBoxRef.current.offsetHeight;
+    const vh = window.innerHeight;
+    const margin = 16;
+    let top = menuAnchor.top - menuH - 10;
+    if (top < margin) top = menuAnchor.bottom + 10;
+    top = Math.min(top, vh - menuH - margin);
+    top = Math.max(top, margin);
+    setMenuTop(top);
+  }, [menuFor, menuAnchor]);
+
   return (
     <div>
       <Title title="Notre conversation" sub="Un petit espace rien qu'à vous deux." />
-      <div className="chat card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-start' }}>
+      <div
+        className="chat card"
+        style={{
+          display: 'flex', flexDirection: 'column', justifyContent: 'flex-start',
+          position: 'relative', overflowY: 'auto', overscrollBehavior: 'contain',
+          // Masque de défilement : les messages se "clippent" derrière une frontière
+          // invisible en haut de la zone, avec un léger fondu pour un rendu progressif.
+          WebkitMaskImage: 'linear-gradient(to bottom, transparent 0px, #000 22px, #000 100%)',
+          maskImage: 'linear-gradient(to bottom, transparent 0px, #000 22px, #000 100%)'
+        }}
+      >
         {visibleMessages.length === 0 && <div className="empty">Commencez votre conversation ❤️</div>}
         {visibleMessages.map(m => {
           const reactions = m.reactions || [];
@@ -1155,13 +1243,58 @@ function Chat({ data, name, save }) {
           const mine = m.from === name;
           const isCard = m.type === "card";
 
+          const isSwiping = swipe.id === m.id && swipe.dx > 0;
+
           return (
             <div
-              className={"msg " + (mine ? "mine" : "theirs")}
               key={m.id}
-              onClick={e => isCard ? openCard(m) : openMenu(e, m)}
-              style={{ position: 'relative', marginBottom: Object.keys(counts).length > 0 ? '12px' : undefined }}
+              style={{ position: 'relative' }}
             >
+              {isSwiping && (
+                <div style={{
+                  position: 'absolute', top: '50%', left: '6px', transform: 'translateY(-50%)',
+                  opacity: Math.min(swipe.dx / 42, 1), color: '#C9184A',
+                  transition: 'opacity .1s linear', pointerEvents: 'none'
+                }}>
+                  <Reply size={18} />
+                </div>
+              )}
+              <div
+                ref={el => { msgRefs.current[m.id] = el; }}
+                className={"msg " + (mine ? "mine" : "theirs")}
+                onClick={e => isCard ? openCard(m) : openMenu(e, m)}
+                onTouchStart={e => onTouchStartMsg(e, m)}
+                onTouchMove={e => onTouchMoveMsg(e, m)}
+                onTouchEnd={() => onTouchEndMsg(m)}
+                style={{
+                  position: 'relative',
+                  marginBottom: Object.keys(counts).length > 0 ? '12px' : undefined,
+                  transform: swipe.id === m.id ? `translateX(${swipe.dx}px)` : undefined,
+                  transition: swipe.id === m.id && swipe.dx > 0 ? 'none' : 'transform .2s ease',
+                  touchAction: 'pan-y'
+                }}
+              >
+              {m.replyTo && (
+                <div
+                  onClick={e => { e.stopPropagation(); scrollToMessage(m.replyTo.id); }}
+                  style={{
+                    display: 'flex', flexDirection: 'column', gap: '1px',
+                    borderLeft: '3px solid ' + (mine ? 'rgba(255,255,255,0.75)' : '#C9184A'),
+                    background: mine ? 'rgba(255,255,255,0.14)' : 'rgba(201,24,74,0.08)',
+                    borderRadius: '6px', padding: '4px 8px', marginBottom: '5px', cursor: 'pointer'
+                  }}
+                >
+                  <span style={{ fontSize: '0.72rem', fontWeight: 700, opacity: 0.85 }}>
+                    {m.replyTo.author === name ? "Vous" : m.replyTo.author}
+                  </span>
+                  <span style={{
+                    fontSize: '0.76rem', opacity: 0.75, whiteSpace: 'nowrap', overflow: 'hidden',
+                    textOverflow: 'ellipsis', maxWidth: '220px'
+                  }}>
+                    {m.replyTo.text}
+                  </span>
+                </div>
+              )}
               {isCard ? (
                 <div style={{
                   background: cardThemes[m.theme || 0].bg,
@@ -1205,6 +1338,7 @@ function Chat({ data, name, save }) {
                   {Object.entries(counts).map(([e, c]) => e + (c > 1 ? c : "")).join(" ")}
                 </span>
               )}
+              </div>
             </div>
           );
         })}
@@ -1250,9 +1384,10 @@ function Chat({ data, name, save }) {
           onClick={() => setMenuFor(null)}
         >
           <div
+            ref={menuBoxRef}
             style={{
               position: 'absolute',
-              top: `${Math.min(Math.max(menuY - 40, 70), 620)}px`,
+              top: `${menuTop}px`,
               left: '50%',
               transform: 'translateX(-50%)',
               width: '86%',
@@ -1286,6 +1421,16 @@ function Chat({ data, name, save }) {
               })}
             </div>
             <div style={{ background: '#1c1c1e', borderRadius: '14px', overflow: 'hidden', boxShadow: '0 10px 30px rgba(0,0,0,0.4)' }}>
+              <button
+                onClick={() => startReply(menuMessage)}
+                style={{
+                  width: '100%', background: 'none', border: 'none', borderBottom: '1px solid rgba(255,255,255,0.08)',
+                  padding: '13px 16px', display: 'flex', alignItems: 'center', gap: '12px',
+                  color: 'rgba(255,255,255,0.9)', fontSize: '0.9rem', cursor: 'pointer'
+                }}
+              >
+                <Reply size={16} /> Répondre
+              </button>
               <button
                 onClick={() => copyMessage(menuMessage)}
                 style={{
@@ -1383,6 +1528,28 @@ function Chat({ data, name, save }) {
             <Pencil size={14} /> Modification du message
           </span>
           <button onClick={cancelEdit} style={{ background: 'none', border: 'none', color: '#C9184A', cursor: 'pointer' }}>
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
+      {!editingId && replyTo && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          background: '#fdf2f8', border: '1px solid #f1dbe4', borderLeft: '3px solid #C9184A', borderRadius: '10px',
+          padding: '8px 12px', margin: '0 0 8px'
+        }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1px', minWidth: 0 }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', fontWeight: 700, color: '#C9184A' }}>
+              <Reply size={14} /> {replyTo.from === name ? "Vous" : replyTo.from}
+            </span>
+            <span style={{
+              fontSize: '0.82rem', color: '#8A5568', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
+            }}>
+              {replyTo.type === "card" ? "💌 Carte vœux" : replyTo.text}
+            </span>
+          </div>
+          <button onClick={cancelReply} style={{ background: 'none', border: 'none', color: '#C9184A', cursor: 'pointer', flexShrink: 0 }}>
             <X size={16} />
           </button>
         </div>
@@ -2167,618 +2334,4 @@ function Games({ data, save, name, role }) {
       )}
       {mode === "question" && (() => {
         const q = getDailyQuestion(getDayKey());
-        const myAnswer = data.gameAnswers.find(a => a.prompt === q && isMine(a));
-        const partnerAnswer = data.gameAnswers.find(a => a.prompt === q && !isMine(a));
-        return (
-          <div className="game card">
-            <Sparkles size={22} />
-            <div className="tag">QUESTION DU JOUR</div>
-            <h3>{q}</h3>
-            {myAnswer ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', margin: '10px 0', width: '100%' }}>
-                <div style={{ background: '#fdf2f8', borderRadius: '10px', padding: '8px 10px', fontSize: '0.85rem', textAlign: 'left' }}>
-                  <b>Toi :</b> {myAnswer.answer}
-                </div>
-                <div style={{ background: '#f7eef2', borderRadius: '10px', padding: '8px 10px', fontSize: '0.85rem', textAlign: 'left' }}>
-                  <b>{partnerName} :</b> {partnerAnswer ? partnerAnswer.answer : "pas encore répondu"}
-                </div>
-              </div>
-            ) : (
-              <>
-                <textarea value={answer} onChange={e => setAnswer(e.target.value)} placeholder="Votre réponse…" />
-                <button className="primary" onClick={() => saveAnswer(q, answer)}><Check size={15} /> Garder notre réponse</button>
-              </>
-            )}
-            <button className="secondary" onClick={() => setMode("menu")}>← Retour</button>
-          </div>
-        );
-      })()}
-      {mode === "truth" && (
-        <div className="game card">
-          <span style={{ fontSize: '22px', lineHeight: 1 }}>🎯</span>
-          <div className="tag">{card.type.toUpperCase()}</div>
-          <h3>{card.text}</h3>
-          <textarea value={answer} onChange={e => setAnswer(e.target.value)} placeholder="Votre réponse ou ressenti…" />
-          <button className="primary" onClick={() => saveAnswer(card.text, answer)}><Check size={15} /> Garder</button>
-          <button className="secondary" onClick={nextCard}><RefreshCw size={15} /> Nouvelle carte</button>
-          <button className="secondary" onClick={() => setMode("menu")}>← Retour</button>
-        </div>
-      )}
-      {mode === "wyr" && (
-        <div className="game card">
-          <HelpCircle size={22} />
-          <div className="tag">TU PRÉFÈRES…</div>
-          <h3>{wyr[0]} <span style={{ opacity: 0.5 }}>ou</span> {wyr[1]}</h3>
-          <textarea value={answer} onChange={e => setAnswer(e.target.value)} placeholder="Dites ce que vous avez choisi et pourquoi…" />
-          <button className="primary" onClick={() => saveAnswer(wyr[0] + " ou " + wyr[1], answer)}><Check size={15} /> Garder notre choix</button>
-          <button className="secondary" onClick={nextWyr}><RefreshCw size={15} /> Nouveau dilemme</button>
-          <button className="secondary" onClick={() => setMode("menu")}>← Retour</button>
-        </div>
-      )}
-
-      {mode === "wheel" && (
-        <div className="game card">
-          <RefreshCw size={22} />
-          <div className="tag">ROUE DES DÉCISIONS</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', margin: '12px 0' }}>
-            {wheelOptions.map((opt, i) => (
-              <div
-                key={i}
-                style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  padding: '10px 12px', borderRadius: '10px',
-                  border: highlighted === i ? '2px solid #C9184A' : '1px solid #eee',
-                  background: winner === opt ? '#fdf2f8' : (highlighted === i && spinning ? '#fff7ed' : '#fff'),
-                  fontWeight: winner === opt ? 700 : 400,
-                  transition: 'background 0.1s ease'
-                }}
-              >
-                <span>{winner === opt ? "🎉 " : ""}{opt}</span>
-                {!spinning && <button onClick={() => removeWheelOption(i)} style={{ background: 'none', border: 'none', padding: 0, color: '#bbb' }}><X size={14} /></button>}
-              </div>
-            ))}
-          </div>
-          <div style={{ display: 'flex', gap: '6px', marginBottom: '10px' }}>
-            <input value={wheelInput} onChange={e => setWheelInput(e.target.value)} onKeyDown={e => e.key === "Enter" && addWheelOption()} placeholder="Ajouter un choix…" style={{ flex: 1 }} />
-            <button onClick={addWheelOption} style={{ padding: '0 12px' }}><Plus size={16} /></button>
-          </div>
-          <button className="primary" onClick={spinWheel} disabled={spinning || wheelOptions.length < 2}>
-            {spinning ? "Ça tourne…" : "Faire tourner la roue"}
-          </button>
-          <button className="secondary" onClick={() => setMode("menu")}>← Retour</button>
-        </div>
-      )}
-
-      {mode === "outings" && (
-        <div className="game card">
-          <Lightbulb size={22} />
-          <div className="tag">IDÉES DE SORTIES</div>
-          {!outCategory ? (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', margin: '12px 0' }}>
-              {Object.keys(dateIdeasCategories).map(cat => (
-                <button key={cat} className="quick" onClick={() => pickOuting(cat)}><span>{cat}</span></button>
-              ))}
-            </div>
-          ) : (
-            <>
-              <div style={{ fontSize: '0.75rem', opacity: 0.6, margin: '10px 0 4px' }}>{outCategory}</div>
-              <h3>{outIdea}</h3>
-              <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
-                <button className="primary" onClick={markOutingDone}><Check size={15} /> On l'a fait !</button>
-                <button className="secondary" onClick={anotherOuting}><RefreshCw size={15} /> Une autre idée</button>
-              </div>
-            </>
-          )}
-          <button className="secondary" onClick={() => setMode("menu")} style={{ marginTop: '10px' }}>← Retour</button>
-          {data.outingsDone.length > 0 && (
-            <div style={{ marginTop: '16px', textAlign: 'left' }}>
-              <div style={{ fontSize: '0.8rem', fontWeight: 700, marginBottom: '6px' }}>Déjà réalisées ({data.outingsDone.length})</div>
-              {data.outingsDone.slice(0, 6).map(o => (
-                <div key={o.id} style={{ fontSize: '0.8rem', color: '#8A5568', marginBottom: '3px' }}>✔️ {o.idea}</div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {mode === "menu" && data.gameAnswers.length > 0 && (
-        <div style={{ marginTop: '18px' }}>
-          <h3 style={{ fontSize: '0.95rem', margin: '0 0 10px 4px' }}>Notre fil de réponses</h3>
-          {data.gameAnswers.map(p => (
-            <div className="card" key={p.id} style={{ marginBottom: '10px' }}>
-              <small style={{ opacity: 0.6 }}>{resolveAuthorName(p)} a répondu</small>
-              <p style={{ fontWeight: 600, margin: '2px 0 4px' }}>{p.prompt}</p>
-              <p style={{ margin: 0 }}>{p.answer}</p>
-              <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: '1px solid rgba(0,0,0,0.08)' }}>
-                {(p.comments || []).map(c => (
-                  <div key={c.id} style={{ fontSize: '0.82rem', marginBottom: '6px' }}>
-                    <b>{resolveAuthorName(c)}</b> {c.text}
-                  </div>
-                ))}
-                <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
-                  <input
-                    value={commentDrafts[p.id] || ""}
-                    onChange={e => setCommentDrafts({ ...commentDrafts, [p.id]: e.target.value })}
-                    onKeyDown={e => e.key === "Enter" && addComment(p.id)}
-                    placeholder="Ajouter un commentaire…"
-                    style={{ flex: 1, fontSize: '0.8rem', padding: '7px 10px' }}
-                  />
-                  <button onClick={() => addComment(p.id)} style={{ padding: '0 12px' }}><Send size={14} /></button>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function More({ data, save, logout, room, name, onOpenPacks }) {
-  const v = getDailyVerseIndex();
-  const toggle = () => save({
-    ...data,
-    savedVerses: data.savedVerses.includes(verses[v][0])
-      ? data.savedVerses.filter(x => x !== verses[v][0])
-      : [...data.savedVerses, verses[v][0]]
-  });
-
-  const [wishItem, setWishItem] = useState("");
-  const addWish = () => {
-    if (!wishItem.trim()) return;
-    save({ ...data, wishlist: [{ id: uid(), text: wishItem.trim(), done: false }, ...data.wishlist] });
-    setWishItem("");
-  };
-  const toggleWish = (id) => save({ ...data, wishlist: data.wishlist.map(w => w.id === id ? { ...w, done: !w.done } : w) });
-  const removeWish = (id) => save({ ...data, wishlist: data.wishlist.filter(w => w.id !== id) });
-
-  const [capsuleText, setCapsuleText] = useState("");
-  const [capsuleDate, setCapsuleDate] = useState("");
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const addCapsule = () => {
-    if (!capsuleText.trim() || !capsuleDate) return;
-    save({ ...data, capsules: [{ id: uid(), text: capsuleText.trim(), unlockDate: capsuleDate, author: name }, ...data.capsules] });
-    setCapsuleText(""); setCapsuleDate("");
-  };
-  const removeCapsule = (id) => save({ ...data, capsules: data.capsules.filter(c => c.id !== id) });
-
-  const toggleChallenge = (text) => {
-    const already = data.challengesDone.includes(text);
-    save({ ...data, challengesDone: already ? data.challengesDone.filter(t => t !== text) : [...data.challengesDone, text] });
-  };
-
-  return (
-    <div>
-      <Title title="Plus pour nous" sub="Des petits détails qui rendent l'histoire spéciale." />
-
-      <button
-        onClick={onOpenPacks}
-        className="card"
-        style={{
-          display: 'flex', alignItems: 'center', gap: '12px', width: '100%', textAlign: 'left',
-          background: 'linear-gradient(135deg,#fdf2f8,#ffe9c7)', border: '1px solid #f1dbe4', cursor: 'pointer'
-        }}
-      >
-        <div style={{ width: 42, height: 42, borderRadius: '50%', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: '#C9184A' }}>
-          <Sparkles size={20} />
-        </div>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 700, fontSize: '0.92rem' }}>✨ Packs spéciaux</div>
-          <div style={{ fontSize: '0.76rem', color: '#8A5568' }}>Saint-Valentin, demande en mariage, anniversaire…</div>
-        </div>
-        <ArrowRight size={16} style={{ opacity: 0.4 }} />
-      </button>
-
-      <div className="card verse bigVerse">
-        <BookOpenText size={22} />
-        <p>« {verses[v][1]} »</p>
-        <b>{verses[v][0]}</b>
-        <div className="actions">
-          <button onClick={toggle}>
-            <Star size={15} fill={data.savedVerses.includes(verses[v][0]) ? "currentColor" : "none"} /> Favori
-          </button>
-        </div>
-      </div>
-
-      <div className="card">
-        <h3>🎁 Notre wishlist</h3>
-        {data.wishlist.map(w => (
-          <div key={w.id} className="row" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 0' }}>
-            <button onClick={() => toggleWish(w.id)} style={{ background: 'none', border: 'none', padding: 0 }}>
-              {w.done ? <Check size={16} color="#22c55e" /> : <span style={{ width: 16, height: 16, borderRadius: '50%', border: '1.5px solid #ccc', display: 'inline-block' }} />}
-            </button>
-            <span style={{ flex: 1, textDecoration: w.done ? 'line-through' : 'none', opacity: w.done ? 0.5 : 1 }}>{w.text}</span>
-            <button onClick={() => removeWish(w.id)} style={{ background: 'none', border: 'none', color: '#bbb' }}><Trash2 size={14} /></button>
-          </div>
-        ))}
-        <div className="inline" style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
-          <input value={wishItem} onChange={e => setWishItem(e.target.value)} onKeyDown={e => e.key === "Enter" && addWish()} placeholder="Un cadeau, un voyage, un projet…" />
-          <button onClick={addWish}><Plus size={16} /></button>
-        </div>
-      </div>
-
-      <div className="card">
-        <h3>⏳ Capsule temporelle</h3>
-        <p style={{ fontSize: '0.8rem', color: '#8A5568', margin: '0 0 10px' }}>Un message qui se déverrouille à une date future.</p>
-        {data.capsules.map(c => {
-          const unlocked = c.unlockDate <= todayStr;
-          return (
-            <div key={c.id} style={{ padding: '10px', borderRadius: '10px', marginBottom: '8px', background: unlocked ? '#fdf2f8' : '#f3f0f2', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-              {unlocked ? (
-                <div><small style={{ opacity: 0.6 }}>{c.author || "Anonyme"}</small><p style={{ margin: '2px 0 0' }}>{c.text}</p></div>
-              ) : (
-                <div style={{ fontSize: '0.85rem', color: '#8A5568' }}>🔒 Se déverrouille le {fmtDate(c.unlockDate)}</div>
-              )}
-              <button onClick={() => removeCapsule(c.id)} style={{ background: 'none', border: 'none', color: '#bbb', flexShrink: 0 }}><X size={14} /></button>
-            </div>
-          );
-        })}
-        <textarea value={capsuleText} onChange={e => setCapsuleText(e.target.value)} placeholder="Le message à découvrir plus tard…" />
-        <input type="date" value={capsuleDate} onChange={e => setCapsuleDate(e.target.value)} style={{ marginBottom: '8px' }} />
-        <button className="primary" onClick={addCapsule}><Clock3 size={15} /> Sceller la capsule</button>
-      </div>
-
-      <div className="card">
-        <h3>🏆 Défis de la semaine</h3>
-        <p style={{ fontSize: '0.76rem', color: '#8A5568', marginTop: '-6px' }}>Nouveaux défis chaque lundi ✨</p>
-        {getWeeklyChallenges(getWeekKey()).map(c => (
-          <div key={c} className="row" style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 0' }}>
-            <button onClick={() => toggleChallenge(c)} style={{ background: 'none', border: 'none', padding: 0 }}>
-              {data.challengesDone.includes(c) ? <Check size={16} color="#22c55e" /> : <span style={{ width: 16, height: 16, borderRadius: '50%', border: '1.5px solid #ccc', display: 'inline-block' }} />}
-            </button>
-            <span style={{ flex: 1, textDecoration: data.challengesDone.includes(c) ? 'line-through' : 'none', opacity: data.challengesDone.includes(c) ? 0.5 : 1 }}>{c}</span>
-          </div>
-        ))}
-        <div style={{ fontSize: '0.8rem', color: '#8A5568', marginTop: '8px' }}>
-          {data.challengesDone.length} / {getWeeklyChallenges(getWeekKey()).length} défis relevés cette semaine 🎉
-        </div>
-      </div>
-
-      <div className="card settings">
-        <div><BellRing size={16} /> Rappels</div>
-        <div><Users size={16} /> Code de votre couple : <b style={{ letterSpacing: '1px' }}>{room}</b></div>
-
-        {/* BOUTON DÉCONNEXION OFFICIEL */}
-        <button
-          onClick={logout}
-          style={{
-            marginTop: '10px',
-            width: '100%',
-            padding: '10px',
-            display: 'flex',
-            alignItems: 'center',
-            justify: 'center',
-            gap: '8px',
-            background: '#fff0f0',
-            color: '#e53e3e',
-            border: '1px solid #ffa3a3',
-            borderRadius: '8px',
-            cursor: 'pointer',
-            fontWeight: 'bold'
-          }}
-        >
-          <LogOut size={16} /> Se déconnecter de ce compte
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function PacksModal({ data, save, name, setTab, onClose }) {
-  const [view, setView] = useState("menu");
-  const todayObj = new Date();
-  const isFeb14 = todayObj.getMonth() === 1 && todayObj.getDate() === 14;
-
-  return (
-    <div
-      style={{ position: 'fixed', inset: 0, zIndex: 3000, background: 'rgba(20,5,15,0.62)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}
-      onClick={onClose}
-    >
-      <div
-        className="card"
-        style={{ width: '100%', maxWidth: '480px', maxHeight: '88vh', overflowY: 'auto', borderRadius: '22px 22px 0 0', margin: 0, position: 'relative' }}
-        onClick={e => e.stopPropagation()}
-      >
-        <button onClick={onClose} style={{ position: 'absolute', top: '12px', right: '12px', background: 'none', border: 'none', opacity: 0.6, cursor: 'pointer' }}>
-          <X size={20} />
-        </button>
-
-        {view === "menu" && (
-          <>
-            <h2 style={{ marginTop: 0 }}>✨ Packs spéciaux</h2>
-            <p style={{ fontSize: '0.85rem', color: '#8A5568', marginTop: '-6px' }}>Des expériences prêtes à l'emploi pour marquer les grandes occasions.</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '14px' }}>
-              <PackTile icon={Heart} title="Pack Saint-Valentin" desc={isFeb14 ? "Disponible aujourd'hui 💗" : "S'active chaque 14 février"} onClick={() => setView("valentine")} locked={!isFeb14} />
-              <PackTile icon={Gem} title="Pack Demande en mariage" desc="Compte à rebours, animation et souvenir de la demande" onClick={() => setView("proposal")} />
-              <PackTile icon={Cake} title="Pack Anniversaire" desc="Carte, défis, idées cadeaux et capsule surprise" onClick={() => setView("birthday")} />
-            </div>
-          </>
-        )}
-
-        {view === "valentine" && <PackValentine data={data} save={save} name={name} setTab={setTab} onClose={onClose} isFeb14={isFeb14} back={() => setView("menu")} />}
-        {view === "proposal" && <PackProposal data={data} save={save} name={name} setTab={setTab} onClose={onClose} back={() => setView("menu")} />}
-        {view === "birthday" && <PackBirthday data={data} save={save} name={name} setTab={setTab} onClose={onClose} back={() => setView("menu")} />}
-      </div>
-    </div>
-  );
-}
-
-function PackTile({ icon: I, title, desc, onClick, locked }) {
-  return (
-    <button
-      onClick={onClick}
-      style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 14px', borderRadius: '14px', border: '1px solid #f1dbe4', background: locked ? '#faf6f7' : '#fff', textAlign: 'left', cursor: 'pointer' }}
-    >
-      <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#fdf2f8', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: '#C9184A' }}>
-        <I size={20} />
-      </div>
-      <div style={{ flex: 1 }}>
-        <div style={{ fontWeight: 700, fontSize: '0.92rem' }}>{title}</div>
-        <div style={{ fontSize: '0.76rem', color: '#8A5568' }}>{desc}</div>
-      </div>
-      <ArrowRight size={16} style={{ opacity: 0.4 }} />
-    </button>
-  );
-}
-
-function PackValentine({ data, save, name, setTab, onClose, isFeb14, back }) {
-  const [msg, setMsg] = useState("");
-  const [capsuleText, setCapsuleText] = useState("");
-  const [quizAnswer, setQuizAnswer] = useState("");
-  const [quizIdx, setQuizIdx] = useState(0);
-
-  const sendMessage = () => {
-    if (!msg.trim()) return;
-    save({ ...data, packs: { ...data.packs, valentineMessages: [{ id: uid(), text: msg.trim(), author: name, date: new Date().toISOString() }, ...data.packs.valentineMessages] } });
-    setMsg("");
-  };
-
-  const toggleChallenge = (c) => {
-    const done = data.packs.valentineChallengesDone.includes(c);
-    save({ ...data, packs: { ...data.packs, valentineChallengesDone: done ? data.packs.valentineChallengesDone.filter(x => x !== c) : [...data.packs.valentineChallengesDone, c] } });
-  };
-
-  const saveQuizAnswer = () => {
-    if (!quizAnswer.trim()) return;
-    save({ ...data, gameAnswers: [{ id: uid(), prompt: "💗 " + valentineQuiz[quizIdx], answer: quizAnswer, date: new Date().toISOString(), author: name, comments: [] }, ...data.gameAnswers] });
-    setQuizAnswer("");
-    setQuizIdx((quizIdx + 1) % valentineQuiz.length);
-  };
-
-  const sealCapsule = () => {
-    if (!capsuleText.trim()) return;
-    const nextYear = new Date(); nextYear.setFullYear(nextYear.getFullYear() + 1);
-    save({ ...data, capsules: [{ id: uid(), text: capsuleText.trim(), unlockDate: nextYear.toISOString().slice(0, 10), author: name, tag: "valentine" }, ...data.capsules] });
-    setCapsuleText("");
-  };
-
-  if (!isFeb14) {
-    return (
-      <div>
-        <button onClick={back} style={{ background: 'none', border: 'none', color: '#C9184A', marginBottom: '10px', cursor: 'pointer' }}>← Retour</button>
-        <div style={{ textAlign: 'center', padding: '20px 10px' }}>
-          <Heart size={34} color="#C9184A" fill="#C9184A" />
-          <h3>Pack Saint-Valentin</h3>
-          <p style={{ fontSize: '0.85rem', color: '#8A5568' }}>Ce pack s'active automatiquement chaque 14 février pour une expérience 100% romantique. Revenez ce jour-là 💗</p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <button onClick={back} style={{ background: 'none', border: 'none', color: '#C9184A', marginBottom: '10px', cursor: 'pointer' }}>← Retour</button>
-      <h3 style={{ margin: '0 0 4px' }}>💗 Pack Saint-Valentin</h3>
-      <p style={{ fontSize: '0.8rem', color: '#8A5568', marginTop: 0 }}>Joyeuse Saint-Valentin ! Voici votre expérience du jour.</p>
-
-      <div className="card">
-        <h4 style={{ margin: '0 0 8px' }}>💌 Message d'amour du jour</h4>
-        <textarea value={msg} onChange={e => setMsg(e.target.value)} placeholder="Écris un mot doux pour aujourd'hui…" />
-        <button className="primary" onClick={sendMessage} style={{ marginTop: '6px' }}>Envoyer</button>
-        {data.packs.valentineMessages.slice(0, 4).map(m => (
-          <div key={m.id} style={{ fontSize: '0.82rem', marginTop: '8px', borderTop: '1px solid #f3e6ea', paddingTop: '8px' }}>
-            <b>{m.author}</b> : {m.text}
-          </div>
-        ))}
-      </div>
-
-      <div className="card">
-        <h4 style={{ margin: '0 0 8px' }}>🎯 Défis du couple</h4>
-        {valentineChallenges.map(c => (
-          <div key={c} style={{ display: 'flex', gap: '8px', alignItems: 'center', padding: '5px 0' }}>
-            <button onClick={() => toggleChallenge(c)} style={{ background: 'none', border: 'none', padding: 0 }}>
-              {data.packs.valentineChallengesDone.includes(c) ? <Check size={16} color="#22c55e" /> : <span style={{ width: 16, height: 16, borderRadius: '50%', border: '1.5px solid #ccc', display: 'inline-block' }} />}
-            </button>
-            <span style={{ flex: 1, fontSize: '0.85rem', textDecoration: data.packs.valentineChallengesDone.includes(c) ? 'line-through' : 'none', opacity: data.packs.valentineChallengesDone.includes(c) ? 0.5 : 1 }}>{c}</span>
-          </div>
-        ))}
-      </div>
-
-      <div className="card">
-        <h4 style={{ margin: '0 0 8px' }}>🎲 Petit jeu : le quiz de l'amour</h4>
-        <p style={{ fontSize: '0.85rem', fontWeight: 600 }}>{valentineQuiz[quizIdx]}</p>
-        <textarea value={quizAnswer} onChange={e => setQuizAnswer(e.target.value)} placeholder="Ta réponse…" />
-        <button className="primary" onClick={saveQuizAnswer} style={{ marginTop: '6px' }}>Garder la réponse</button>
-      </div>
-
-      <div className="card">
-        <h4 style={{ margin: '0 0 8px' }}>⏳ Capsule « ouvre ce message plus tard »</h4>
-        <p style={{ fontSize: '0.78rem', color: '#8A5568' }}>Se déverrouille automatiquement le 14 février prochain.</p>
-        <textarea value={capsuleText} onChange={e => setCapsuleText(e.target.value)} placeholder="Le message à découvrir l'an prochain…" />
-        <button className="primary" onClick={sealCapsule} style={{ marginTop: '6px' }}><Clock3 size={15} /> Sceller</button>
-      </div>
-    </div>
-  );
-}
-
-function PackProposal({ data, save, name, setTab, onClose, back }) {
-  const p = data.packs.proposal;
-  const [dateVal, setDateVal] = useState(p.date || "");
-  const [place, setPlace] = useState(p.place || "");
-  const [message, setMessage] = useState(p.message || "");
-  const [showAnim, setShowAnim] = useState(false);
-  const [now, setNow] = useState(new Date());
-
-  useEffect(() => { const t = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(t); }, []);
-
-  const savePlan = () => save({ ...data, packs: { ...data.packs, proposal: { ...p, date: dateVal, place, message } } });
-
-  const target = dateVal ? new Date(dateVal + "T00:00:00") : null;
-  const diff = target ? Math.max(0, target - now) : 0;
-  const days = target ? Math.floor(diff / 86400000) : null;
-
-  const confirmAsked = () => {
-    save({
-      ...data,
-      packs: { ...data.packs, proposal: { ...p, date: dateVal, place, message, askedDate: new Date().toISOString() } },
-      notes: [{ id: uid(), text: `💍 Notre demande en mariage — ${place || "un lieu inoubliable"} : ${message || "un oui pour la vie."}`, date: new Date().toISOString(), author: name, reactions: [] }, ...data.notes]
-    });
-    setShowAnim(false);
-  };
-
-  return (
-    <div>
-      <button onClick={back} style={{ background: 'none', border: 'none', color: '#C9184A', marginBottom: '10px', cursor: 'pointer' }}>← Retour</button>
-      <h3 style={{ margin: '0 0 4px' }}>💍 Pack Demande en mariage</h3>
-      <p style={{ fontSize: '0.8rem', color: '#8A5568', marginTop: 0 }}>Préparez et gardez le souvenir du grand moment.</p>
-
-      <div className="card">
-        <h4 style={{ margin: '0 0 8px' }}>📅 Date, lieu & message</h4>
-        <input type="date" value={dateVal} onChange={e => setDateVal(e.target.value)} style={{ marginBottom: '8px' }} />
-        <input value={place} onChange={e => setPlace(e.target.value)} placeholder="Lieu prévu…" style={{ marginBottom: '8px' }} />
-        <textarea value={message} onChange={e => setMessage(e.target.value)} placeholder="Le message que tu veux dire…" />
-        <button className="primary" onClick={savePlan} style={{ marginTop: '6px' }}>Enregistrer</button>
-      </div>
-
-      {dateVal && !p.askedDate && (
-        <div className="card" style={{ textAlign: 'center' }}>
-          <h4 style={{ margin: '0 0 8px' }}>⏳ Compte à rebours</h4>
-          <div style={{ fontSize: '1.8rem', fontWeight: 800, color: '#C9184A' }}>{days}</div>
-          <div style={{ fontSize: '0.75rem', color: '#8A5568' }}>jour(s) avant le grand moment</div>
-        </div>
-      )}
-
-      {!p.askedDate ? (
-        <button className="primary" onClick={() => setShowAnim(true)} style={{ width: '100%', marginTop: '6px' }}><Gem size={16} /> Faire la demande maintenant</button>
-      ) : (
-        <div className="card" style={{ textAlign: 'center', background: '#fdf2f8' }}>
-          <Gem size={26} color="#C9184A" />
-          <p style={{ fontWeight: 700 }}>Elle/il a dit oui ! 💍</p>
-          <p style={{ fontSize: '0.8rem', color: '#8A5568' }}>Conservé dans votre Histoire.</p>
-        </div>
-      )}
-
-      {showAnim && (
-        <div style={{ position: 'fixed', inset: 0, background: 'linear-gradient(160deg,#4a1030,#C9184A)', zIndex: 4000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#fff', padding: '24px', textAlign: 'center' }}>
-          <style>{`
-            @keyframes ringFloat { 0%{transform:translateY(0) rotate(0deg);} 50%{transform:translateY(-14px) rotate(8deg);} 100%{transform:translateY(0) rotate(0deg);} }
-            .ring-anim { animation: ringFloat 1.6s ease-in-out infinite; }
-          `}</style>
-          <div className="ring-anim"><Gem size={54} /></div>
-          <h2 style={{ margin: '16px 0 8px' }}>Un moment inoubliable…</h2>
-          <p style={{ maxWidth: '320px', opacity: 0.9 }}>{message || "Ce jour restera gravé pour toujours."}</p>
-          <div style={{ display: 'flex', gap: '10px', marginTop: '24px' }}>
-            <button className="primary" onClick={confirmAsked}>💍 Oui !</button>
-            <button className="secondary" onClick={() => setShowAnim(false)}>Fermer</button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function PackBirthday({ data, save, name, setTab, onClose, back }) {
-  const b = data.packs.birthday;
-  const [personName, setPersonName] = useState(b.personName || "");
-  const [dateVal, setDateVal] = useState(b.date || "");
-  const [cardText, setCardText] = useState(b.cardText || "");
-  const [giftInput, setGiftInput] = useState("");
-  const [capsuleText, setCapsuleText] = useState("");
-
-  const savePlan = () => save({ ...data, packs: { ...data.packs, birthday: { ...b, personName, date: dateVal, cardText } } });
-
-  const addGift = () => {
-    if (!giftInput.trim()) return;
-    save({ ...data, packs: { ...data.packs, birthday: { ...b, giftIdeas: [...b.giftIdeas, { id: uid(), text: giftInput.trim() }] } } });
-    setGiftInput("");
-  };
-  const removeGift = (id) => save({ ...data, packs: { ...data.packs, birthday: { ...b, giftIdeas: b.giftIdeas.filter(g => g.id !== id) } } });
-
-  const toggleChallenge = (c) => {
-    const done = b.challengesDone.includes(c);
-    save({ ...data, packs: { ...data.packs, birthday: { ...b, challengesDone: done ? b.challengesDone.filter(x => x !== c) : [...b.challengesDone, c] } } });
-  };
-
-  const sealCapsule = () => {
-    if (!capsuleText.trim() || !dateVal) return;
-    const nextYear = new Date(dateVal + "T00:00:00"); nextYear.setFullYear(nextYear.getFullYear() + 1);
-    save({ ...data, capsules: [{ id: uid(), text: capsuleText.trim(), unlockDate: nextYear.toISOString().slice(0, 10), author: name, tag: "birthday" }, ...data.capsules] });
-    setCapsuleText("");
-  };
-
-  const now = new Date();
-  let daysLeft = null;
-  if (dateVal) {
-    const [, m, d] = dateVal.split("-").map(Number);
-    let next = new Date(now.getFullYear(), m - 1, d);
-    if (next < now) next = new Date(now.getFullYear() + 1, m - 1, d);
-    daysLeft = Math.ceil((next - now) / 86400000);
-  }
-
-  return (
-    <div>
-      <button onClick={back} style={{ background: 'none', border: 'none', color: '#C9184A', marginBottom: '10px', cursor: 'pointer' }}>← Retour</button>
-      <h3 style={{ margin: '0 0 4px' }}>🎂 Pack Anniversaire</h3>
-
-      <div className="card">
-        <h4 style={{ margin: '0 0 8px' }}>🎉 Infos</h4>
-        <input value={personName} onChange={e => setPersonName(e.target.value)} placeholder="Qui fête son anniversaire ?" style={{ marginBottom: '8px' }} />
-        <input type="date" value={dateVal} onChange={e => setDateVal(e.target.value)} style={{ marginBottom: '8px' }} />
-        <textarea value={cardText} onChange={e => setCardText(e.target.value)} placeholder="Message de la carte d'anniversaire…" />
-        <button className="primary" onClick={savePlan} style={{ marginTop: '6px' }}>Enregistrer</button>
-        {daysLeft !== null && <div style={{ marginTop: '8px', fontSize: '0.85rem', color: '#8A5568' }}>⏳ {daysLeft} jour(s) avant le jour J</div>}
-      </div>
-
-      {cardText && (
-        <div className="card" style={{ background: 'linear-gradient(160deg,#ffe1ea,#ffd08a)' }}>
-          <div style={{ fontSize: '1.3rem' }}>🎂 🎈 🎁</div>
-          <p style={{ fontWeight: 600, margin: '8px 0 0' }}>{cardText}</p>
-        </div>
-      )}
-
-      <div className="card">
-        <h4 style={{ margin: '0 0 8px' }}>🎁 Idées cadeaux</h4>
-        {b.giftIdeas.map(g => (
-          <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 0' }}>
-            <span style={{ flex: 1, fontSize: '0.85rem' }}>{g.text}</span>
-            <button onClick={() => removeGift(g.id)} style={{ background: 'none', border: 'none', color: '#bbb' }}><Trash2 size={14} /></button>
-          </div>
-        ))}
-        <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
-          <input value={giftInput} onChange={e => setGiftInput(e.target.value)} onKeyDown={e => e.key === "Enter" && addGift()} placeholder="Ajouter une idée…" />
-          <button onClick={addGift}><Plus size={16} /></button>
-        </div>
-      </div>
-
-      <div className="card">
-        <h4 style={{ margin: '0 0 8px' }}>🏆 Défis romantiques</h4>
-        {birthdayChallenges.map(c => (
-          <div key={c} style={{ display: 'flex', gap: '8px', alignItems: 'center', padding: '5px 0' }}>
-            <button onClick={() => toggleChallenge(c)} style={{ background: 'none', border: 'none', padding: 0 }}>
-              {b.challengesDone.includes(c) ? <Check size={16} color="#22c55e" /> : <span style={{ width: 16, height: 16, borderRadius: '50%', border: '1.5px solid #ccc', display: 'inline-block' }} />}
-            </button>
-            <span style={{ flex: 1, fontSize: '0.85rem', textDecoration: b.challengesDone.includes(c) ? 'line-through' : 'none', opacity: b.challengesDone.includes(c) ? 0.5 : 1 }}>{c}</span>
-          </div>
-        ))}
-      </div>
-
-      <div className="card">
-        <h4 style={{ margin: '0 0 8px' }}>⏳ Capsule à ouvrir l'année prochaine</h4>
-        <textarea value={capsuleText} onChange={e => setCapsuleText(e.target.value)} placeholder="Le message pour l'année prochaine…" />
-        <button className="primary" onClick={sealCapsule} style={{ marginTop: '6px' }} disabled={!dateVal}><Clock3 size={15} /> Sceller</button>
-      </div>
-    </div>
-  );
-}
-
-
+        const myAnswer = data.gameAnswers.find
